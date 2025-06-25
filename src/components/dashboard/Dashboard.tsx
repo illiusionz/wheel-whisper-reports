@@ -7,6 +7,7 @@ import MCPReport from './MCPReport';
 import SchedulePanel from './SchedulePanel';
 import SettingsPanel from './SettingsPanel';
 import StockProviderSelector from './StockProviderSelector';
+import { getStockService } from '@/services/stock';
 
 const Dashboard: React.FC = () => {
   const { user, signOut } = useAuth();
@@ -38,25 +39,41 @@ const Dashboard: React.FC = () => {
     setActiveTab('reports');
   };
 
-  const handleRefreshReport = (symbol?: string) => {
+  const handleRefreshReport = async (symbol?: string) => {
     setIsRefreshing(true);
     
-    // Simulate API call to generate report
-    setTimeout(() => {
+    try {
       const targetSymbol = symbol || selectedStock;
       if (targetSymbol) {
+        const stockService = getStockService();
+        
+        // Get real stock data
+        const stockData = await stockService.getQuote(targetSymbol);
+        
+        // Try to get wheel strategy data if available
+        let wheelData = null;
+        if (stockService.hasAdvancedFeatures()) {
+          try {
+            wheelData = await stockService.getWheelStrategyData(targetSymbol);
+          } catch (error) {
+            console.log('Wheel strategy data not available:', error);
+          }
+        }
+
         setReports(prev => ({
           ...prev,
           [targetSymbol]: {
             lastUpdated: new Date().toISOString(),
+            stockData,
+            wheelData,
             sections: {
-              // Mock report data - would come from actual GPT generation
+              // Report sections with real data integration
               macroCalendar: {},
-              stockOverview: {},
+              stockOverview: { stockData },
               technicalSnapshot: {},
               expectedClosing: {},
               optionsActivity: {},
-              wheelLadder: {},
+              wheelLadder: { wheelData },
               executionTiming: {},
               fundamentals: {},
               capitalFlows: {},
@@ -68,24 +85,49 @@ const Dashboard: React.FC = () => {
           }
         }));
       }
+    } catch (error) {
+      console.error('Error refreshing report:', error);
+    } finally {
       setIsRefreshing(false);
-    }, 2000);
+    }
   };
 
-  const handleRefreshAll = () => {
+  const handleRefreshAll = async () => {
     setIsRefreshing(true);
-    // Simulate refreshing all reports
-    setTimeout(() => {
+    try {
+      const stockService = getStockService();
       const newReports: {[key: string]: any} = {};
-      watchlist.forEach(stock => {
-        newReports[stock.symbol] = {
-          lastUpdated: new Date().toISOString(),
-          sections: {}
-        };
-      });
+      
+      for (const stock of watchlist) {
+        try {
+          const stockData = await stockService.getQuote(stock.symbol);
+          let wheelData = null;
+          
+          if (stockService.hasAdvancedFeatures()) {
+            try {
+              wheelData = await stockService.getWheelStrategyData(stock.symbol);
+            } catch (error) {
+              console.log(`Wheel strategy data not available for ${stock.symbol}:`, error);
+            }
+          }
+
+          newReports[stock.symbol] = {
+            lastUpdated: new Date().toISOString(),
+            stockData,
+            wheelData,
+            sections: {}
+          };
+        } catch (error) {
+          console.error(`Error fetching data for ${stock.symbol}:`, error);
+        }
+      }
+      
       setReports(newReports);
+    } catch (error) {
+      console.error('Error refreshing all reports:', error);
+    } finally {
       setIsRefreshing(false);
-    }, 3000);
+    }
   };
 
   const renderActivePanel = () => {
