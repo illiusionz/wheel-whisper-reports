@@ -1,10 +1,9 @@
-
 import React, { useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Brain, Loader2, Zap, Clock, Sparkles, Settings, ChevronDown } from 'lucide-react';
+import { Brain, Loader2, Zap, Clock, Sparkles, Settings, ChevronDown, RefreshCw } from 'lucide-react';
 import { useHybridAI } from '@/hooks/useHybridAI';
 
 interface HybridAIInsightCardProps {
@@ -45,6 +44,26 @@ const HybridAIInsightCard: React.FC<HybridAIInsightCardProps> = ({
       setAnalysis(result);
       setHasAnalyzed(true);
     }
+  };
+
+  const formatAnalysisContent = (content: string) => {
+    // Split content into structured sections
+    const sections = content.split(/\*\*([^*]+)\*\*/g);
+    const formatted = [];
+    
+    for (let i = 0; i < sections.length; i++) {
+      if (i % 2 === 0) {
+        // Regular text
+        if (sections[i].trim()) {
+          formatted.push({ type: 'text', content: sections[i].trim() });
+        }
+      } else {
+        // Bold headers
+        formatted.push({ type: 'header', content: sections[i] });
+      }
+    }
+    
+    return formatted;
   };
 
   if (error) {
@@ -173,18 +192,54 @@ const HybridAIInsightCard: React.FC<HybridAIInsightCardProps> = ({
           </div>
         ) : (
           <div className="space-y-4">
-            <div className="bg-slate-800/50 rounded-lg p-4 border border-slate-700/50">
-              <p className="text-sm text-slate-200 leading-relaxed">{analysis.content}</p>
+            <div className="bg-gradient-to-br from-slate-800/80 to-slate-900/80 rounded-xl p-6 border border-slate-600/30 backdrop-blur-sm">
+              <div className="prose prose-invert prose-sm max-w-none">
+                {formatAnalysisContent(analysis.content).map((section, index) => (
+                  <div key={index} className="mb-4 last:mb-0">
+                    {section.type === 'header' ? (
+                      <h4 className="text-white font-semibold text-sm mb-2 flex items-center gap-2 border-b border-slate-600/30 pb-2">
+                        <div className="w-1.5 h-1.5 bg-gradient-to-r from-purple-400 to-cyan-400 rounded-full"></div>
+                        {section.content}
+                      </h4>
+                    ) : (
+                      <div className="text-slate-200 text-sm leading-relaxed font-medium">
+                        {section.content.split(/(\d+\.\s|\[\d+\]|\$\d+(?:\.\d+)?|%|\d{4})/g).map((part, partIndex) => {
+                          // Highlight numbers, percentages, and dollar amounts
+                          if (/^\d+\.$/.test(part)) {
+                            return <span key={partIndex} className="text-cyan-400 font-semibold">{part}</span>;
+                          }
+                          if (/^\$\d+(?:\.\d+)?$/.test(part)) {
+                            return <span key={partIndex} className="text-green-400 font-semibold">{part}</span>;
+                          }
+                          if (/^\d+%$/.test(part) || /^%$/.test(part)) {
+                            return <span key={partIndex} className="text-purple-400 font-semibold">{part}</span>;
+                          }
+                          if (/^\[\d+\]$/.test(part)) {
+                            return <span key={partIndex} className="text-slate-400 text-xs">{part}</span>;
+                          }
+                          if (/^\d{4}$/.test(part)) {
+                            return <span key={partIndex} className="text-blue-400 font-medium">{part}</span>;
+                          }
+                          return <span key={partIndex}>{part}</span>;
+                        })}
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
             </div>
             
-            <div className="flex items-center justify-between pt-2">
-              <div className="flex items-center gap-3">
+            <div className="flex items-center justify-between pt-2 border-t border-slate-700/50">
+              <div className="flex items-center gap-4">
                 <div className="flex items-center gap-1.5 text-xs text-slate-400">
                   <Clock className="h-3 w-3" />
-                  {new Date(analysis.timestamp).toLocaleTimeString()}
+                  <span className="font-medium">
+                    {new Date(analysis.timestamp).toLocaleTimeString()}
+                  </span>
                 </div>
                 <div className="w-1 h-1 bg-slate-600 rounded-full" />
-                <Badge variant="outline" className="text-xs border-slate-600 bg-slate-800/50 text-slate-300">
+                <Badge variant="outline" className="text-xs border-slate-600 bg-slate-800/50 text-slate-300 font-medium">
+                  <div className="w-2 h-2 bg-green-400 rounded-full mr-1.5 animate-pulse"></div>
                   {Math.round(analysis.confidence * 100)}% confidence
                 </Badge>
               </div>
@@ -194,12 +249,15 @@ const HybridAIInsightCard: React.FC<HybridAIInsightCardProps> = ({
                 disabled={isLoading}
                 size="sm"
                 variant="outline"
-                className="border-purple-500/30 text-purple-300 hover:bg-purple-500/10 hover:border-purple-400/50 transition-all duration-200"
+                className="border-purple-500/30 text-purple-300 hover:bg-purple-500/10 hover:border-purple-400/50 transition-all duration-200 font-medium"
               >
                 {isLoading ? (
                   <Loader2 className="h-4 w-4 animate-spin" />
                 ) : (
-                  'Refresh'
+                  <>
+                    <RefreshCw className="h-3.5 w-3.5 mr-1.5" />
+                    Refresh
+                  </>
                 )}
               </Button>
             </div>
