@@ -100,9 +100,82 @@ export class PolygonProvider implements StockProvider {
   private apiKey: string;
   private baseUrl = 'https://api.polygon.io';
   private wsUrl = 'wss://socket.polygon.io';
+  private cache = new Map<string, { data: any; timestamp: number }>();
+  private rateLimitTracker: number[] = [];
+  private readonly MAX_CALLS_PER_MINUTE = 5;
+  private readonly CACHE_TTL = 15000; // 15 seconds
 
   constructor(apiKey: string) {
     this.apiKey = apiKey;
+  }
+
+  private canMakeCall(): boolean {
+    const now = Date.now();
+    const oneMinuteAgo = now - 60000;
+    
+    // Remove old calls from tracker
+    this.rateLimitTracker = this.rateLimitTracker.filter(time => time > oneMinuteAgo);
+    
+    return this.rateLimitTracker.length < this.MAX_CALLS_PER_MINUTE;
+  }
+
+  private logCall(): void {
+    this.rateLimitTracker.push(Date.now());
+  }
+
+  private getCachedData<T>(key: string): T | null {
+    const entry = this.cache.get(key);
+    if (!entry) return null;
+    
+    const isExpired = Date.now() - entry.timestamp > this.CACHE_TTL;
+    if (isExpired) {
+      this.cache.delete(key);
+      return null;
+    }
+    
+    return entry.data as T;
+  }
+
+  private setCachedData(key: string, data: any): void {
+    this.cache.set(key, {
+      data,
+      timestamp: Date.now()
+    });
+  }
+
+  private async makeRateLimitedCall<T>(
+    url: string, 
+    cacheKey: string,
+    parser: (data: any) => T
+  ): Promise<T> {
+    // Check cache first
+    const cached = this.getCachedData<T>(cacheKey);
+    if (cached) {
+      console.log(`Cache hit for ${cacheKey}`);
+      return cached;
+    }
+
+    // Check rate limits
+    if (!this.canMakeCall()) {
+      throw new Error('Polygon API rate limit exceeded. Please wait before making more requests.');
+    }
+
+    // Make API call
+    this.logCall();
+    console.log(`Making API call to: ${url}`);
+    
+    const response = await fetch(url);
+    if (!response.ok) {
+      throw new Error(`Polygon API error: ${response.statusText}`);
+    }
+    
+    const rawData = await response.json();
+    const parsedData = parser(rawData);
+    
+    // Cache the result
+    this.setCachedData(cacheKey, parsedData);
+    
+    return parsedData;
   }
 
   isConfigured(): boolean {
@@ -111,62 +184,35 @@ export class PolygonProvider implements StockProvider {
 
   async getQuote(symbol: string): Promise<StockQuote> {
     try {
-      console.log(`Fetching detailed quote for ${symbol}...`);
+      console.log(`Fetching optimized quote for ${symbol}...`);
       
-      // Try to get real-time quote first, then fall back to previous close
-      const [realTimeQuote, previousClose, tickerDetails] = await Promise.allSettled([
-        this.getRealTimeQuote(symbol),
-        this.getPreviousClose(symbol),
-        this.getTickerDetails(symbol)
-      ]);
+      const cacheKey = `quote-${symbol}`;
+      
+      return await this.makeRateLimitedCall(
+        `${this.baseUrl}/v2/snapshot/locale/us/markets/stocks/tickers/${symbol}?apikey=${this.apiKey}`,
+        cacheKey,
+        (data) => {
+          const ticker = data.ticker;
+          if (!ticker) {
+            throw new Error(`No data available for ${symbol}`);
+          }
 
-      let currentPrice = 0;
-      let previousClosePrice = 0;
-      let volume = 0;
-      let companyName = `${symbol.toUpperCase()}`;
+          const currentPrice = ticker.last?.price || ticker.min?.c || ticker.day?.c || 0;
+          const previousClose = ticker.prevDay?.c || 0;
+          const change = previousClose ? currentPrice - previousClose : 0;
+          const changePercent = previousClose !== 0 ? (change / previousClose) * 100 : 0;
 
-      // Handle real-time quote
-      if (realTimeQuote.status === 'fulfilled' && realTimeQuote.value) {
-        currentPrice = realTimeQuote.value.last?.price || realTimeQuote.value.min?.c || 0;
-        previousClosePrice = realTimeQuote.value.prevDay?.c || 0;
-        volume = realTimeQuote.value.min?.v || 0;
-        console.log(`Real-time data for ${symbol}:`, realTimeQuote.value);
-      }
-
-      // Fallback to previous close if real-time fails
-      if (!currentPrice && previousClose.status === 'fulfilled' && previousClose.value) {
-        currentPrice = previousClose.value.c;
-        previousClosePrice = previousClose.value.o; // Use open as previous reference
-        volume = previousClose.value.v;
-        console.log(`Using previous close data for ${symbol}:`, previousClose.value);
-      }
-
-      // Handle company name
-      if (tickerDetails.status === 'fulfilled' && tickerDetails.value?.name) {
-        companyName = tickerDetails.value.name;
-      }
-
-      if (!currentPrice) {
-        throw new Error(`No market data available for ${symbol}`);
-      }
-
-      // Calculate change
-      const change = previousClosePrice ? currentPrice - previousClosePrice : 0;
-      const changePercent = previousClosePrice !== 0 ? (change / previousClosePrice) * 100 : 0;
-
-      const quote: StockQuote = {
-        symbol: symbol.toUpperCase(),
-        name: companyName,
-        price: Number(currentPrice.toFixed(2)),
-        change: Number(change.toFixed(2)),
-        changePercent: Number(changePercent.toFixed(2)),
-        volume: volume,
-        marketCap: tickerDetails.status === 'fulfilled' ? tickerDetails.value?.market_cap : undefined,
-        lastUpdated: new Date().toISOString()
-      };
-
-      console.log(`Final processed quote for ${symbol}:`, quote);
-      return quote;
+          return {
+            symbol: symbol.toUpperCase(),
+            name: `${symbol.toUpperCase()}`, // Will be enriched separately if needed
+            price: Number(currentPrice.toFixed(2)),
+            change: Number(change.toFixed(2)),
+            changePercent: Number(changePercent.toFixed(2)),
+            volume: ticker.day?.v || ticker.min?.v || 0,
+            lastUpdated: new Date().toISOString()
+          };
+        }
+      );
     } catch (error) {
       console.error(`Polygon API error for ${symbol}:`, error);
       throw new Error(`Failed to fetch quote for ${symbol}: ${error}`);
@@ -175,13 +221,16 @@ export class PolygonProvider implements StockProvider {
 
   async getMultipleQuotes(symbols: string[]): Promise<StockQuote[]> {
     try {
-      const quotes = await Promise.all(
-        symbols.map(symbol => this.getQuote(symbol).catch(error => {
-          console.error(`Failed to fetch ${symbol}:`, error);
-          return null;
-        }))
+      // Use Promise.allSettled to prevent one failure from breaking all
+      const results = await Promise.allSettled(
+        symbols.map(symbol => this.getQuote(symbol))
       );
-      return quotes.filter(quote => quote !== null) as StockQuote[];
+
+      return results
+        .filter((result): result is PromisedSettledResult<StockQuote> & { status: 'fulfilled' } => 
+          result.status === 'fulfilled'
+        )
+        .map(result => result.value);
     } catch (error) {
       console.error('Polygon batch quote error:', error);
       throw error;
@@ -244,23 +293,23 @@ export class PolygonProvider implements StockProvider {
     if (strikePrice) params.append('strike_price', strikePrice.toString());
     if (contractType) params.append('contract_type', contractType);
 
-    const response = await fetch(`${this.baseUrl}/v3/reference/options/contracts?${params}`);
-    if (!response.ok) {
-      throw new Error(`Polygon Options API error: ${response.statusText}`);
-    }
+    const cacheKey = `options-${symbol}-${expiration || 'all'}-${strikePrice || 'all'}-${contractType || 'all'}`;
 
-    const data: PolygonOptionsChain = await response.json();
-    
-    // Convert PolygonOptionsContract to OptionsContract
-    return (data.results || []).map(contract => ({
-      ticker: contract.ticker || '',
-      strike_price: contract.strike_price || 0,
-      expiration_date: contract.expiration_date || '',
-      contract_type: contract.contract_type as 'call' | 'put' || 'call',
-      exercise_style: contract.exercise_style,
-      shares_per_contract: contract.shares_per_contract,
-      underlying_ticker: contract.underlying_ticker || symbol
-    }));
+    return await this.makeRateLimitedCall(
+      `${this.baseUrl}/v3/reference/options/contracts?${params}`,
+      cacheKey,
+      (data) => {
+        return (data.results || []).map((contract: any) => ({
+          ticker: contract.ticker || '',
+          strike_price: contract.strike_price || 0,
+          expiration_date: contract.expiration_date || '',
+          contract_type: contract.contract_type as 'call' | 'put' || 'call',
+          exercise_style: contract.exercise_style,
+          shares_per_contract: contract.shares_per_contract,
+          underlying_ticker: contract.underlying_ticker || symbol
+        }));
+      }
+    );
   }
 
   async getHistoricalData(
@@ -272,15 +321,13 @@ export class PolygonProvider implements StockProvider {
     const fromDate = from || new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
     const toDate = to || new Date().toISOString().split('T')[0];
     
-    const url = `${this.baseUrl}/v2/aggs/ticker/${symbol}/range/1/${timespan}/${fromDate}/${toDate}?apikey=${this.apiKey}`;
+    const cacheKey = `historical-${symbol}-${timespan}-${fromDate}-${toDate}`;
     
-    const response = await fetch(url);
-    if (!response.ok) {
-      throw new Error(`Polygon Historical API error: ${response.statusText}`);
-    }
-
-    const data = await response.json();
-    return data.results || [];
+    return await this.makeRateLimitedCall(
+      `${this.baseUrl}/v2/aggs/ticker/${symbol}/range/1/${timespan}/${fromDate}/${toDate}?apikey=${this.apiKey}`,
+      cacheKey,
+      (data) => data.results || []
+    );
   }
 
   async getMarketStatus(): Promise<PolygonMarketStatus> {
@@ -362,16 +409,16 @@ export class PolygonProvider implements StockProvider {
   }
 
   async getWheelStrategyData(symbol: string, targetStrike?: number): Promise<WheelStrategyData> {
+    // Use cached data where possible to minimize API calls
     const [stockQuote, optionsChain, historicalData] = await Promise.all([
       this.getQuote(symbol),
-      this.getOptionsChain(symbol),
+      this.getOptionsChain(symbol).catch(() => []), // Graceful fallback
       this.getHistoricalData(symbol, 'day', 
         new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
         new Date().toISOString().split('T')[0]
-      )
+      ).catch(() => []) // Graceful fallback
     ]);
 
-    // optionsChain is now directly OptionsContract[], not an object with results
     const putOptions = optionsChain.filter(opt => 
       opt.contract_type === 'put' && 
       opt.strike_price && 
@@ -390,9 +437,9 @@ export class PolygonProvider implements StockProvider {
           strike: put.strike_price!,
           expiration: put.expiration_date,
           ticker: put.ticker,
-          premium: 0, // Would need additional API call to get current premium
-          probability: 0, // Would need calculation based on historical data
-          annualizedReturn: 0 // Would need calculation based on premium and time
+          premium: 0, // Would need additional API call - skip to save rate limits
+          probability: 0, // Would need calculation
+          annualizedReturn: 0 // Would need calculation
         })),
       recommendedStrike,
       riskAnalysis: {
@@ -417,5 +464,22 @@ export class PolygonProvider implements StockProvider {
     const variance = returns.reduce((sum, ret) => sum + Math.pow(ret - meanReturn, 2), 0) / returns.length;
     
     return Math.sqrt(variance * 252) * 100;
+  }
+
+  // Add method to get rate limit status
+  getRateLimitStatus() {
+    const now = Date.now();
+    const oneMinuteAgo = now - 60000;
+    const recentCalls = this.rateLimitTracker.filter(time => time > oneMinuteAgo);
+    
+    return {
+      remaining: Math.max(0, this.MAX_CALLS_PER_MINUTE - recentCalls.length),
+      resetIn: recentCalls.length > 0 ? Math.ceil((recentCalls[0] + 60000 - now) / 1000) : 0,
+      cacheSize: this.cache.size
+    };
+  }
+
+  clearCache(): void {
+    this.cache.clear();
   }
 }
