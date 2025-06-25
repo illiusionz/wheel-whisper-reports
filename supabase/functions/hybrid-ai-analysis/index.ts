@@ -1,3 +1,4 @@
+
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
 
 const corsHeaders = {
@@ -6,14 +7,30 @@ const corsHeaders = {
 }
 
 serve(async (req) => {
+  console.log('=== HYBRID AI ANALYSIS REQUEST START ===')
+  console.log('Request method:', req.method)
+  console.log('Request URL:', req.url)
+  console.log('Request headers:', Object.fromEntries(req.headers.entries()))
+
   if (req.method === 'OPTIONS') {
+    console.log('Handling CORS preflight request')
     return new Response('ok', { headers: corsHeaders })
   }
 
   try {
-    const { analysisType, symbol, data, requiresRealTime, forceModel, maxTokens = 1000, temperature = 0.3 } = await req.json()
+    const requestBody = await req.json()
+    console.log('Request body received:', JSON.stringify(requestBody, null, 2))
     
-    console.log(`Hybrid AI Analysis Request: ${analysisType} for ${symbol}`)
+    const { analysisType, symbol, data, requiresRealTime, forceModel, maxTokens = 1000, temperature = 0.3 } = requestBody
+    
+    console.log(`=== ANALYSIS CONFIGURATION ===`)
+    console.log(`Analysis Type: ${analysisType}`)
+    console.log(`Symbol: ${symbol}`)
+    console.log(`Force Model: ${forceModel}`)
+    console.log(`Max Tokens: ${maxTokens}`)
+    console.log(`Temperature: ${temperature}`)
+    console.log(`Requires Real Time: ${requiresRealTime}`)
+    console.log(`Data provided: ${JSON.stringify(data)}`)
     
     // Determine the best model for the analysis type
     let selectedModel = forceModel || 'claude'
@@ -34,40 +51,47 @@ serve(async (req) => {
       }
     }
 
-    console.log(`Using model: ${selectedModel} for ${analysisType} analysis`)
+    console.log(`=== MODEL SELECTION ===`)
+    console.log(`Selected model: ${selectedModel} for ${analysisType} analysis`)
 
     // Build context-aware prompt
     const contextPrompt = buildContextPrompt(analysisType, symbol, data)
+    console.log(`=== PROMPT BUILT ===`)
+    console.log(`Prompt length: ${contextPrompt.length} characters`)
+    console.log(`First 200 chars of prompt: ${contextPrompt.substring(0, 200)}...`)
     
     let analysis = ''
     let confidence = 0.7
     
     if (selectedModel === 'perplexity') {
+      console.log('=== CALLING PERPLEXITY API ===')
       const perplexityKey = Deno.env.get('PERPLEXITY_API_KEY')
       if (!perplexityKey) {
-        console.error('Perplexity API key not found')
+        console.error('❌ PERPLEXITY API KEY NOT FOUND')
         throw new Error('Perplexity API key not configured')
       }
-      console.log('Perplexity API key found, making request...')
+      console.log('✅ Perplexity API key found, making request...')
       
       const result = await callPerplexityAPI(perplexityKey, contextPrompt, maxTokens)
       analysis = result.content
       confidence = result.confidence
+      console.log(`✅ Perplexity analysis completed: ${analysis.length} characters`)
     } else if (selectedModel === 'openai') {
+      console.log('=== CALLING OPENAI API ===')
       const openaiKey = Deno.env.get('OPENAI_API_KEY')
       if (!openaiKey) {
-        console.error('OpenAI API key not found')
+        console.error('❌ OPENAI API KEY NOT FOUND')
         throw new Error('OpenAI API key not configured')
       }
-      console.log('OpenAI API key found, making request...')
+      console.log('✅ OpenAI API key found, making request...')
       
       const result = await callOpenAIAPI(openaiKey, contextPrompt, maxTokens)
       analysis = result.content
       confidence = result.confidence
+      console.log(`✅ OpenAI analysis completed: ${analysis.length} characters`)
     } else {
-      // Default to Claude - more comprehensive API key checking
-      console.log('Attempting Claude API call...')
-      console.log('Environment variables check:')
+      console.log('=== CALLING CLAUDE API ===')
+      console.log('Checking environment variables...')
       
       const envVars = Deno.env.toObject()
       const anthropicKeys = Object.keys(envVars).filter(key => 
@@ -89,31 +113,40 @@ serve(async (req) => {
         keySource = 'ANTHROPIC_KEY'
       }
       
-      console.log(`API key source: ${keySource}`)
-      console.log(`API key found: ${!!anthropicKey}`)
+      console.log(`=== API KEY CHECK ===`)
+      console.log(`Key source: ${keySource}`)
+      console.log(`Key found: ${!!anthropicKey}`)
+      console.log(`Key length: ${anthropicKey ? anthropicKey.length : 0}`)
+      console.log(`Key starts with sk-ant-: ${anthropicKey ? anthropicKey.startsWith('sk-ant-') : false}`)
       
       if (!anthropicKey) {
-        console.error('No Claude/Anthropic API key found')
-        console.error('Available environment variables:', Object.keys(envVars).slice(0, 10)) // Show first 10 for debugging
+        console.error('❌ NO CLAUDE/ANTHROPIC API KEY FOUND')
+        console.error('Available environment variables:', Object.keys(envVars).slice(0, 20))
         throw new Error('Claude API key not configured. Please add ANTHROPIC_API_KEY to your Supabase Edge Function secrets.')
       }
       
       // Validate API key format
       if (!anthropicKey.startsWith('sk-ant-')) {
-        console.error('Invalid Claude API key format. Expected key to start with sk-ant-')
+        console.error('❌ INVALID CLAUDE API KEY FORMAT')
+        console.error(`Expected key to start with 'sk-ant-', got: ${anthropicKey.substring(0, 10)}...`)
         throw new Error('Invalid Claude API key format. Please check your ANTHROPIC_API_KEY.')
       }
       
-      console.log(`Using Claude API key from ${keySource} (length: ${anthropicKey.length})`)
+      console.log(`✅ Using Claude API key from ${keySource}`)
       
       const result = await callClaudeAPI(anthropicKey, contextPrompt, maxTokens)
       analysis = result.content
       confidence = result.confidence
+      console.log(`✅ Claude analysis completed: ${analysis.length} characters`)
     }
 
     // Ensure we have a complete response
+    console.log(`=== RESPONSE VALIDATION ===`)
+    console.log(`Analysis length: ${analysis ? analysis.length : 0}`)
+    console.log(`Analysis is empty: ${!analysis || analysis.trim().length === 0}`)
+    
     if (!analysis || analysis.trim().length === 0) {
-      console.error('Empty analysis received from AI model')
+      console.error('❌ EMPTY ANALYSIS RECEIVED FROM AI MODEL')
       throw new Error('Empty response from AI model')
     }
 
@@ -130,7 +163,11 @@ serve(async (req) => {
       }
     }
 
-    console.log(`Analysis completed for ${symbol}: ${analysis.length} characters`)
+    console.log(`=== SUCCESS RESPONSE ===`)
+    console.log(`Response content length: ${response.content.length}`)
+    console.log(`Response model: ${response.model}`)
+    console.log(`Response confidence: ${response.confidence}`)
+    console.log('=== HYBRID AI ANALYSIS REQUEST END ===')
 
     return new Response(
       JSON.stringify(response),
@@ -143,12 +180,18 @@ serve(async (req) => {
     )
 
   } catch (error) {
-    console.error('Hybrid AI Analysis Error:', error)
+    console.error('=== HYBRID AI ANALYSIS ERROR ===')
+    console.error('Error type:', error.constructor.name)
+    console.error('Error message:', error.message)
+    console.error('Error stack:', error.stack)
+    console.error('=== END ERROR ===')
+    
     return new Response(
       JSON.stringify({ 
         error: error.message,
         details: 'Failed to generate AI analysis',
-        timestamp: new Date().toISOString()
+        timestamp: new Date().toISOString(),
+        errorType: error.constructor.name
       }),
       { 
         status: 500,
@@ -278,12 +321,12 @@ Provide comprehensive financial analysis with specific insights and actionable r
 }
 
 async function callClaudeAPI(apiKey: string, prompt: string, maxTokens: number) {
-  console.log('=== Claude API Call Details ===')
+  console.log('=== CLAUDE API CALL START ===')
   console.log('API Key length:', apiKey.length)
   console.log('API Key starts with sk-ant-:', apiKey.startsWith('sk-ant-'))
-  console.log('API Key first 15 chars:', apiKey.substring(0, 15) + '...')
+  console.log('API Key prefix (first 15 chars):', apiKey.substring(0, 15) + '...')
   console.log('Prompt length:', prompt.length)
-  console.log('Max tokens:', maxTokens)
+  console.log('Max tokens requested:', maxTokens)
   
   const requestBody = {
     model: 'claude-3-5-sonnet-20241022',
@@ -297,6 +340,7 @@ async function callClaudeAPI(apiKey: string, prompt: string, maxTokens: number) 
     ]
   }
   
+  console.log('Claude request body:', JSON.stringify(requestBody, null, 2))
   console.log('Making request to Claude API...')
   
   try {
@@ -310,15 +354,19 @@ async function callClaudeAPI(apiKey: string, prompt: string, maxTokens: number) 
       body: JSON.stringify(requestBody)
     })
 
-    console.log('Claude API response status:', response.status)
-    console.log('Claude API response ok:', response.ok)
+    console.log('=== CLAUDE API RESPONSE ===')
+    console.log('Response status:', response.status)
+    console.log('Response status text:', response.statusText)
+    console.log('Response ok:', response.ok)
+    console.log('Response headers:', Object.fromEntries(response.headers.entries()))
     
     if (!response.ok) {
       const errorText = await response.text()
-      console.error(`Claude API error details:`)
+      console.error('=== CLAUDE API ERROR DETAILS ===')
       console.error(`Status: ${response.status}`)
       console.error(`Status Text: ${response.statusText}`)
-      console.error(`Error Response: ${errorText}`)
+      console.error(`Error Response Body: ${errorText}`)
+      console.error('=== END CLAUDE API ERROR ===')
       
       if (response.status === 401) {
         throw new Error('Claude API authentication failed. The API key is invalid or expired. Please verify your ANTHROPIC_API_KEY in Supabase secrets.')
@@ -332,61 +380,81 @@ async function callClaudeAPI(apiKey: string, prompt: string, maxTokens: number) 
     }
 
     const data = await response.json()
-    console.log('Claude API response received successfully')
+    console.log('=== CLAUDE API SUCCESS RESPONSE ===')
+    console.log('Response data keys:', Object.keys(data))
     console.log('Response has content array:', Array.isArray(data.content))
     console.log('Content array length:', data.content?.length || 0)
     
     if (data.content && data.content[0]) {
+      console.log('First content item keys:', Object.keys(data.content[0]))
       console.log('First content item type:', data.content[0].type)
       console.log('First content item text length:', data.content[0].text?.length || 0)
+      console.log('First 100 chars of response:', data.content[0].text?.substring(0, 100) || '')
     }
     
     const content = data.content?.[0]?.text || ''
     
     if (!content) {
-      console.error('No content in Claude response:')
-      console.error('Full response:', JSON.stringify(data, null, 2))
+      console.error('=== EMPTY CONTENT FROM CLAUDE ===')
+      console.error('Full response data:', JSON.stringify(data, null, 2))
       throw new Error('Claude API returned empty content')
     }
     
-    console.log('Claude analysis completed successfully')
+    console.log('✅ Claude analysis completed successfully')
+    console.log('Content length:', content.length)
+    console.log('=== CLAUDE API CALL END ===')
+    
     return {
       content,
       confidence: 0.85
     }
     
   } catch (error) {
-    console.error('Error in callClaudeAPI:', error)
+    console.error('=== ERROR IN CLAUDE API CALL ===')
+    console.error('Error type:', error.constructor.name)
+    console.error('Error message:', error.message)
+    console.error('Error stack:', error.stack)
+    console.error('=== END CLAUDE API CALL ERROR ===')
     throw error
   }
 }
 
 async function callPerplexityAPI(apiKey: string, prompt: string, maxTokens: number) {
-  console.log('Making Perplexity API request...')
+  console.log('=== PERPLEXITY API CALL START ===')
+  console.log('API Key length:', apiKey.length)
+  console.log('Prompt length:', prompt.length)
+  console.log('Max tokens:', maxTokens)
   
+  const requestBody = {
+    model: 'llama-3.1-sonar-large-128k-online',
+    messages: [
+      {
+        role: 'system',
+        content: 'You are a financial analyst providing detailed, comprehensive analysis. Always provide complete responses with specific insights and actionable recommendations.'
+      },
+      {
+        role: 'user',
+        content: prompt
+      }
+    ],
+    temperature: 0.3,
+    top_p: 0.9,
+    max_tokens: Math.min(maxTokens, 4000)
+  }
+  
+  console.log('Perplexity request body:', JSON.stringify(requestBody, null, 2))
+
   const response = await fetch('https://api.perplexity.ai/chat/completions', {
     method: 'POST',
     headers: {
       'Authorization': `Bearer ${apiKey}`,
       'Content-Type': 'application/json',
     },
-    body: JSON.stringify({
-      model: 'llama-3.1-sonar-large-128k-online',
-      messages: [
-        {
-          role: 'system',
-          content: 'You are a financial analyst providing detailed, comprehensive analysis. Always provide complete responses with specific insights and actionable recommendations.'
-        },
-        {
-          role: 'user',
-          content: prompt
-        }
-      ],
-      temperature: 0.3,
-      top_p: 0.9,
-      max_tokens: Math.min(maxTokens, 4000)
-    }),
+    body: JSON.stringify(requestBody),
   })
+
+  console.log('Perplexity response status:', response.status)
+  console.log('Perplexity response ok:', response.ok)
 
   if (!response.ok) {
     const errorText = await response.text()
@@ -396,38 +464,53 @@ async function callPerplexityAPI(apiKey: string, prompt: string, maxTokens: numb
 
   const data = await response.json()
   console.log('Perplexity API response received successfully')
+  console.log('Response data keys:', Object.keys(data))
+  
+  const content = data.choices[0].message.content || ''
+  console.log('Perplexity content length:', content.length)
+  console.log('=== PERPLEXITY API CALL END ===')
   
   return {
-    content: data.choices[0].message.content || '',
+    content,
     confidence: 0.80
   }
 }
 
 async function callOpenAIAPI(apiKey: string, prompt: string, maxTokens: number) {
-  console.log('Making OpenAI API request...')
+  console.log('=== OPENAI API CALL START ===')
+  console.log('API Key length:', apiKey.length)
+  console.log('Prompt length:', prompt.length)
+  console.log('Max tokens:', maxTokens)
   
+  const requestBody = {
+    model: 'gpt-4o-mini',
+    messages: [
+      {
+        role: 'system',
+        content: 'You are a financial analyst providing detailed, comprehensive analysis. Always provide complete responses with specific insights and actionable recommendations.'
+      },
+      {
+        role: 'user',
+        content: prompt
+      }
+    ],
+    temperature: 0.3,
+    max_tokens: Math.min(maxTokens, 4000),
+  }
+  
+  console.log('OpenAI request body:', JSON.stringify(requestBody, null, 2))
+
   const response = await fetch('https://api.openai.com/v1/chat/completions', {
     method: 'POST',
     headers: {
       'Authorization': `Bearer ${apiKey}`,
       'Content-Type': 'application/json',
     },
-    body: JSON.stringify({
-      model: 'gpt-4o-mini',
-      messages: [
-        {
-          role: 'system',
-          content: 'You are a financial analyst providing detailed, comprehensive analysis. Always provide complete responses with specific insights and actionable recommendations.'
-        },
-        {
-          role: 'user',
-          content: prompt
-        }
-      ],
-      temperature: 0.3,
-      max_tokens: Math.min(maxTokens, 4000),
-    }),
+    body: JSON.stringify(requestBody),
   })
+
+  console.log('OpenAI response status:', response.status)
+  console.log('OpenAI response ok:', response.ok)
 
   if (!response.ok) {
     const errorText = await response.text()
@@ -437,9 +520,14 @@ async function callOpenAIAPI(apiKey: string, prompt: string, maxTokens: number) 
 
   const data = await response.json()
   console.log('OpenAI API response received successfully')
+  console.log('Response data keys:', Object.keys(data))
+  
+  const content = data.choices[0].message.content || ''
+  console.log('OpenAI content length:', content.length)
+  console.log('=== OPENAI API CALL END ===')
   
   return {
-    content: data.choices[0].message.content || '',
+    content,
     confidence: 0.82
   }
 }
