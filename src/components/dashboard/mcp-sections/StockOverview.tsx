@@ -3,7 +3,7 @@ import React from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { TrendingUp, TrendingDown, DollarSign, BarChart3 } from 'lucide-react';
 import { StockQuote } from '@/types/stock';
-import AIInsightCard from '@/components/ai/AIInsightCard';
+import HybridAIInsightCard from '@/components/ai/HybridAIInsightCard';
 
 interface StockOverviewProps {
   symbol: string;
@@ -72,13 +72,23 @@ const StockOverview: React.FC<StockOverviewProps> = ({ symbol, stockData }) => {
         </CardContent>
       </Card>
 
-      {/* AI Analysis Card */}
-      <AIInsightCard
-        symbol={symbol}
-        analysisType="technical"
-        data={stockData}
-        title="AI Technical Analysis"
-      />
+      {/* Hybrid AI Analysis Cards */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <HybridAIInsightCard
+          symbol={symbol}
+          analysisType="technical"
+          data={stockData}
+          title="Technical Analysis (Claude)"
+        />
+        
+        <HybridAIInsightCard
+          symbol={symbol}
+          analysisType="sentiment"
+          data={stockData}
+          title="Market Sentiment (Perplexity)"
+          requiresRealTime={true}
+        />
+      </div>
     </div>
   );
 };

@@ -3,7 +3,7 @@ import React from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Target, TrendingDown, Calculator } from 'lucide-react';
 import { StockQuote } from '@/types/stock';
-import AIInsightCard from '@/components/ai/AIInsightCard';
+import HybridAIInsightCard from '@/components/ai/HybridAIInsightCard';
 
 interface WheelStrategyLadderProps {
   stockData: StockQuote;
@@ -61,13 +61,22 @@ const WheelStrategyLadder: React.FC<WheelStrategyLadderProps> = ({ stockData }) 
         </CardContent>
       </Card>
 
-      {/* AI Strategy Analysis */}
-      <AIInsightCard
-        symbol={stockData.symbol}
-        analysisType="options"
-        data={{ stockData, strikes }}
-        title="AI Strategy Recommendation"
-      />
+      {/* Hybrid AI Strategy Analysis */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <HybridAIInsightCard
+          symbol={stockData.symbol}
+          analysisType="options"
+          data={{ stockData, strikes }}
+          title="Options Strategy (Claude)"
+        />
+        
+        <HybridAIInsightCard
+          symbol={stockData.symbol}
+          analysisType="risk"
+          data={{ stockData, strikes }}
+          title="Risk Assessment (Claude)"
+        />
+      </div>
     </div>
   );
 };
