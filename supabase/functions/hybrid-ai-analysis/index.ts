@@ -67,8 +67,9 @@ serve(async (req) => {
   console.log('=== HYBRID AI ANALYSIS REQUEST START ===')
   console.log('Request method:', req.method)
   console.log('Request headers:', Object.fromEntries(req.headers.entries()))
+  console.log('Request URL:', req.url)
 
-  // Handle CORS preflight requests
+  // Handle CORS preflight requests first
   if (req.method === 'OPTIONS') {
     console.log('Handling CORS preflight request')
     return new Response('ok', { 
@@ -77,9 +78,30 @@ serve(async (req) => {
     })
   }
 
+  // Only allow POST requests
+  if (req.method !== 'POST') {
+    console.log('Invalid method:', req.method)
+    return new Response(
+      JSON.stringify({ error: 'Method not allowed' }),
+      { 
+        status: 405,
+        headers: { 
+          ...corsHeaders, 
+          'Content-Type': 'application/json' 
+        } 
+      }
+    )
+  }
+
   try {
-    const requestBody = await req.json()
-    console.log('Request body received:', JSON.stringify(requestBody, null, 2))
+    let requestBody;
+    try {
+      requestBody = await req.json()
+      console.log('Request body received:', JSON.stringify(requestBody, null, 2))
+    } catch (parseError) {
+      console.error('Failed to parse request body:', parseError)
+      throw new Error('Invalid JSON in request body')
+    }
     
     // Validate and sanitize input
     const validatedRequest = validateHybridAIRequest(requestBody);
