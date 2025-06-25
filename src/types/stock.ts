@@ -160,4 +160,4 @@ export interface FundamentalData {
 }
 
 // Re-export MarketStatus for convenience
-export { MarketStatus };
+export type { MarketStatus };
