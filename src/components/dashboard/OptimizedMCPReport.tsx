@@ -61,20 +61,16 @@ const OptimizedMCPReport: React.FC<OptimizedMCPReportProps> = memo(({
     return () => endRenderTiming();
   });
 
-  // Optimized real-time data hook
+  // Optimized real-time data hook - manual refresh only
   const { 
     data: realTimeStockData,
     isLoading: isRealTimeLoading,
     lastUpdated,
-    isAutoRefreshActive,
-    startAutoRefresh,
-    stopAutoRefresh,
     refresh: refreshRealTimeData,
     retryConnection
   } = useOptimizedRealTimeData({
     symbol: symbol !== 'Select a stock' ? symbol : undefined,
-    refreshInterval: 90000, // Increased to 90 seconds for better performance
-    enableAutoRefresh: symbol !== 'Select a stock',
+    enableAutoRefresh: false, // Disabled auto-refresh
     onDataUpdate: (data) => {
       if (!Array.isArray(data)) {
         setStockData(data);
@@ -104,14 +100,6 @@ const OptimizedMCPReport: React.FC<OptimizedMCPReportProps> = memo(({
     onRefresh();
   }, [refreshRealTimeData, onRefresh]);
 
-  const toggleAutoRefresh = React.useCallback(() => {
-    if (isAutoRefreshActive) {
-      stopAutoRefresh();
-    } else {
-      startAutoRefresh();
-    }
-  }, [isAutoRefreshActive, stopAutoRefresh, startAutoRefresh]);
-
   if (!report && !stockData) {
     return (
       <MCPReportEmpty 
@@ -136,20 +124,17 @@ const OptimizedMCPReport: React.FC<OptimizedMCPReportProps> = memo(({
         </div>
       )}
 
-      {/* Header with Real-time Controls */}
+      {/* Header with Manual Refresh Controls */}
       <RealTimeErrorBoundary onRetry={retryConnection} symbol={symbol}>
         <Card className="bg-slate-800 border-slate-700">
           <MCPReportHeader 
             symbol={symbol}
             lastUpdated={lastUpdated}
-            isAutoRefreshActive={isAutoRefreshActive}
           />
           <div className="px-6 pb-6">
             <MCPReportControls
-              isAutoRefreshActive={isAutoRefreshActive}
               isRefreshing={isRefreshing}
               isRealTimeLoading={isRealTimeLoading}
-              onToggleAutoRefresh={toggleAutoRefresh}
               onManualRefresh={handleManualRefresh}
             />
           </div>
