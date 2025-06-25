@@ -74,6 +74,7 @@ serve(async (req) => {
   console.log('⏰ Request time:', new Date().toISOString())
   console.log('🌐 Method:', req.method)
   console.log('📍 URL:', req.url)
+  console.log('🔑 Headers:', Object.fromEntries(req.headers.entries()))
 
   try {
     // Handle CORS preflight requests
@@ -110,12 +111,16 @@ serve(async (req) => {
     let requestBody;
     try {
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
+      const timeoutId = setTimeout(() => {
+        console.log('⏰ Request body parsing timeout');
+        controller.abort();
+      }, 10000); // 10 second timeout
       
       const bodyText = await req.text();
       clearTimeout(timeoutId);
       
       console.log('📄 Raw request body length:', bodyText.length);
+      console.log('📄 Raw request body preview:', bodyText.substring(0, 500));
       
       if (!bodyText || bodyText.trim() === '') {
         throw new Error('Request body is empty');
@@ -146,7 +151,7 @@ serve(async (req) => {
     let validatedRequest;
     try {
       validatedRequest = validateHybridAIRequest(requestBody);
-      console.log('✅ Request validation successful');
+      console.log('✅ Request validation successful:', validatedRequest);
     } catch (validationError) {
       console.error('❌ Validation error:', validationError.message);
       return new Response(
@@ -202,21 +207,41 @@ serve(async (req) => {
       apiKey = keyResult.key
       keySource = keyResult.source
       
-      // Validate API key format
-      if (selectedModel === 'claude' && !apiKey.startsWith('sk-ant-')) {
-        throw new Error(`Claude API key must start with 'sk-ant-' but got key starting with '${apiKey.substring(0, 7)}...'`);
+      console.log(`✅ Got API key from ${keySource} (length: ${apiKey?.length || 0})`);
+      
+      // Enhanced API key validation
+      if (!apiKey || typeof apiKey !== 'string' || apiKey.trim().length === 0) {
+        throw new Error(`${selectedModel.toUpperCase()} API key is empty or invalid`);
       }
       
-      console.log(`✅ Using ${selectedModel} API key from ${keySource} (length: ${apiKey.length})`)
+      // Model-specific key format validation
+      if (selectedModel === 'claude') {
+        if (!apiKey.startsWith('sk-ant-')) {
+          throw new Error(`Claude API key must start with 'sk-ant-' but got key starting with '${apiKey.substring(0, 10)}...'`);
+        }
+        if (apiKey.length < 40) {
+          throw new Error(`Claude API key appears to be too short (${apiKey.length} characters)`);
+        }
+      } else if (selectedModel === 'openai') {
+        if (!apiKey.startsWith('sk-')) {
+          throw new Error(`OpenAI API key must start with 'sk-' but got key starting with '${apiKey.substring(0, 10)}...'`);
+        }
+      } else if (selectedModel === 'perplexity') {
+        if (!apiKey.startsWith('pplx-')) {
+          throw new Error(`Perplexity API key must start with 'pplx-' but got key starting with '${apiKey.substring(0, 10)}...'`);
+        }
+      }
+      
+      console.log(`✅ API key validation passed for ${selectedModel}`);
     } catch (keyError) {
       console.error(`❌ API key error for ${selectedModel}:`, keyError.message)
       return new Response(
         JSON.stringify({ 
           error: `${selectedModel.toUpperCase()} API key not configured or invalid`,
-          details: `Please add a valid ${selectedModel.toUpperCase()} API key to Supabase Edge Function Secrets. Go to Project Settings > Edge Functions > Secrets and add ${keySource}.`,
+          details: keyError.message,
           model: selectedModel,
           keyName: keySource,
-          suggestion: selectedModel === 'claude' ? 'API key must start with sk-ant-' : 'Please verify your API key format'
+          suggestion: `Please add a valid ${selectedModel.toUpperCase()} API key to Supabase Edge Function Secrets. Go to Project Settings > Edge Functions > Secrets and add ${keySource}.`
         }),
         {
           status: 500,
@@ -234,10 +259,11 @@ serve(async (req) => {
     try {
       contextPrompt = buildContextPrompt(validatedRequest.analysisType, validatedRequest.symbol, validatedRequest.data)
       console.log(`✅ Prompt built (${contextPrompt.length} characters)`)
+      console.log(`📝 Prompt preview:`, contextPrompt.substring(0, 300) + '...')
       
-      if (contextPrompt.length > 10000) {
+      if (contextPrompt.length > 15000) {
         console.log('⚠️ Large prompt detected, truncating...')
-        contextPrompt = contextPrompt.substring(0, 10000) + '...'
+        contextPrompt = contextPrompt.substring(0, 15000) + '\n\n[Content truncated for processing]'
       }
     } catch (promptError) {
       console.error('❌ Prompt building error:', promptError.message)
@@ -261,54 +287,62 @@ serve(async (req) => {
     
     // Call the appropriate AI service with timeout protection
     console.log(`🚀 Calling ${selectedModel} API...`)
+    const startTime = Date.now();
+    
     try {
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => {
-        console.log(`⏰ ${selectedModel} API call timeout after 30 seconds`);
-        controller.abort();
-      }, 30000); // 30 second timeout
-
       let result;
       if (selectedModel === 'perplexity') {
+        console.log('🌐 Using Perplexity API...')
         result = await callPerplexityAPI(apiKey, contextPrompt, validatedRequest.maxTokens)
       } else if (selectedModel === 'openai') {
+        console.log('🤖 Using OpenAI API...')
         result = await callOpenAIAPI(apiKey, contextPrompt, validatedRequest.maxTokens)
       } else {
-        console.log('🧠 Calling Claude API...')
+        console.log('🧠 Using Claude API...')
         result = await callClaudeAPI(apiKey, contextPrompt, validatedRequest.maxTokens)
-        console.log('✅ Claude API call completed successfully')
       }
       
-      clearTimeout(timeoutId);
+      const processingTime = Date.now() - startTime;
+      console.log(`⏱️ AI processing completed in ${processingTime}ms`);
       
       if (!result || typeof result !== 'object') {
+        console.error('❌ Invalid result from AI service:', result);
         throw new Error('Invalid response from AI service - no result object');
       }
       
       analysis = result.content || '';
       confidence = result.confidence || 0.7;
       
-      console.log(`✅ ${selectedModel} analysis completed (${analysis.length} characters, confidence: ${confidence})`);
+      console.log(`✅ ${selectedModel} analysis completed:`, {
+        contentLength: analysis.length,
+        confidence: confidence,
+        processingTime: processingTime
+      });
+      
+      if (!analysis || analysis.trim().length === 0) {
+        throw new Error(`${selectedModel} returned empty analysis content`);
+      }
+      
     } catch (aiError) {
       console.error(`❌ ${selectedModel} AI service error:`)
       console.error('Error name:', aiError.name)
       console.error('Error message:', aiError.message)
       console.error('Error stack:', aiError.stack)
       
-      // Enhanced error messages based on error type
+      // Enhanced error messages based on error type and model
       let errorMessage = aiError.message || 'Unknown AI service error';
-      let suggestion = 'Please check your API configuration';
+      let suggestion = 'Please check your API configuration and try again';
       
       if (selectedModel === 'claude') {
         if (aiError.message?.includes('authentication') || aiError.message?.includes('401')) {
-          errorMessage = 'Claude API key is invalid or expired. Please update your ANTHROPIC_API_KEY in Supabase Edge Function Secrets with a valid Anthropic API key.';
-          suggestion = 'Get a valid API key from https://console.anthropic.com/';
+          errorMessage = 'Claude API authentication failed. The API key is invalid, expired, or has insufficient permissions.';
+          suggestion = 'Please update your ANTHROPIC_API_KEY in Supabase Edge Function Secrets with a valid key from https://console.anthropic.com/';
         } else if (aiError.message?.includes('rate limit') || aiError.message?.includes('429')) {
           errorMessage = 'Claude API rate limit exceeded. Please try again in a few minutes.';
-          suggestion = 'Wait before making another request';
+          suggestion = 'Wait before making another request or upgrade your API plan';
         } else if (aiError.name === 'AbortError') {
-          errorMessage = 'Claude API request timed out after 30 seconds.';
-          suggestion = 'Try again with a simpler request';
+          errorMessage = 'Claude API request timed out. The request took too long to process.';
+          suggestion = 'Try again with a simpler request or check your internet connection';
         }
       }
       
@@ -318,7 +352,8 @@ serve(async (req) => {
           details: errorMessage,
           model: selectedModel,
           errorType: aiError.name || 'Unknown',
-          suggestion: suggestion
+          suggestion: suggestion,
+          timestamp: new Date().toISOString()
         }),
         {
           status: 500,
@@ -330,7 +365,7 @@ serve(async (req) => {
       )
     }
 
-    // Validate AI response
+    // Final validation of AI response
     console.log('🔍 Validating AI response...')
     if (!analysis || typeof analysis !== 'string' || analysis.trim().length === 0) {
       console.error('❌ Empty or invalid analysis received from AI model')
@@ -338,7 +373,8 @@ serve(async (req) => {
         JSON.stringify({ 
           error: 'Empty or invalid response from AI model',
           model: selectedModel,
-          details: 'The AI service returned an empty or invalid response'
+          details: 'The AI service returned an empty or invalid response',
+          timestamp: new Date().toISOString()
         }),
         {
           status: 500,
@@ -350,6 +386,7 @@ serve(async (req) => {
       )
     }
 
+    const totalProcessingTime = Date.now() - startTime;
     const response = {
       content: analysis.trim(),
       model: selectedModel,
@@ -360,7 +397,8 @@ serve(async (req) => {
         symbol: validatedRequest.symbol,
         tokenCount: analysis.length,
         modelUsed: selectedModel,
-        processingTime: Date.now()
+        processingTime: totalProcessingTime,
+        apiKeySource: keySource
       }
     }
 
@@ -368,6 +406,7 @@ serve(async (req) => {
     console.log(`   Content length: ${response.content.length}`)
     console.log(`   Model: ${response.model}`)
     console.log(`   Confidence: ${response.confidence}`)
+    console.log(`   Processing time: ${totalProcessingTime}ms`)
     console.log('⏰ Request completed at:', new Date().toISOString())
 
     return new Response(
