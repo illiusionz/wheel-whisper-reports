@@ -65,24 +65,46 @@ serve(async (req) => {
       analysis = result.content
       confidence = result.confidence
     } else {
-      // Default to Claude - try multiple possible environment variable names
-      let anthropicKey = Deno.env.get('ANTHROPIC_API_KEY') || 
-                        Deno.env.get('CLAUDE_API_KEY') || 
-                        Deno.env.get('ANTHROPIC_KEY')
+      // Default to Claude - more comprehensive API key checking
+      console.log('Attempting Claude API call...')
+      console.log('Environment variables check:')
       
-      console.log('Checking for Claude API key...')
-      console.log('ANTHROPIC_API_KEY exists:', !!Deno.env.get('ANTHROPIC_API_KEY'))
-      console.log('CLAUDE_API_KEY exists:', !!Deno.env.get('CLAUDE_API_KEY'))
-      console.log('ANTHROPIC_KEY exists:', !!Deno.env.get('ANTHROPIC_KEY'))
+      const envVars = Deno.env.toObject()
+      const anthropicKeys = Object.keys(envVars).filter(key => 
+        key.includes('ANTHROPIC') || key.includes('CLAUDE')
+      )
+      console.log('Found Anthropic/Claude related env vars:', anthropicKeys)
+      
+      // Try to get the API key from different possible names
+      let anthropicKey = Deno.env.get('ANTHROPIC_API_KEY')
+      let keySource = 'ANTHROPIC_API_KEY'
       
       if (!anthropicKey) {
-        console.error('Claude/Anthropic API key not found in any expected environment variable')
-        console.error('Available env vars:', Object.keys(Deno.env.toObject()).filter(key => key.includes('ANTHROPIC') || key.includes('CLAUDE')))
-        throw new Error('Claude API key not configured. Please add ANTHROPIC_API_KEY to your Supabase secrets.')
+        anthropicKey = Deno.env.get('CLAUDE_API_KEY')
+        keySource = 'CLAUDE_API_KEY'
       }
       
-      console.log('Claude API key found, making request...')
-      console.log('Using key from env var with length:', anthropicKey.length)
+      if (!anthropicKey) {
+        anthropicKey = Deno.env.get('ANTHROPIC_KEY')
+        keySource = 'ANTHROPIC_KEY'
+      }
+      
+      console.log(`API key source: ${keySource}`)
+      console.log(`API key found: ${!!anthropicKey}`)
+      
+      if (!anthropicKey) {
+        console.error('No Claude/Anthropic API key found')
+        console.error('Available environment variables:', Object.keys(envVars).slice(0, 10)) // Show first 10 for debugging
+        throw new Error('Claude API key not configured. Please add ANTHROPIC_API_KEY to your Supabase Edge Function secrets.')
+      }
+      
+      // Validate API key format
+      if (!anthropicKey.startsWith('sk-ant-')) {
+        console.error('Invalid Claude API key format. Expected key to start with sk-ant-')
+        throw new Error('Invalid Claude API key format. Please check your ANTHROPIC_API_KEY.')
+      }
+      
+      console.log(`Using Claude API key from ${keySource} (length: ${anthropicKey.length})`)
       
       const result = await callClaudeAPI(anthropicKey, contextPrompt, maxTokens)
       analysis = result.content
@@ -256,9 +278,12 @@ Provide comprehensive financial analysis with specific insights and actionable r
 }
 
 async function callClaudeAPI(apiKey: string, prompt: string, maxTokens: number) {
-  console.log('Making Claude API request...')
-  console.log('API Key length:', apiKey ? apiKey.length : 0)
-  console.log('API Key starts with sk-ant:', apiKey ? apiKey.startsWith('sk-ant-') : false)
+  console.log('=== Claude API Call Details ===')
+  console.log('API Key length:', apiKey.length)
+  console.log('API Key starts with sk-ant-:', apiKey.startsWith('sk-ant-'))
+  console.log('API Key first 15 chars:', apiKey.substring(0, 15) + '...')
+  console.log('Prompt length:', prompt.length)
+  console.log('Max tokens:', maxTokens)
   
   const requestBody = {
     model: 'claude-3-5-sonnet-20241022',
@@ -272,48 +297,67 @@ async function callClaudeAPI(apiKey: string, prompt: string, maxTokens: number) 
     ]
   }
   
-  console.log('Request body prepared, making API call...')
+  console.log('Making request to Claude API...')
   
-  const response = await fetch('https://api.anthropic.com/v1/messages', {
-    method: 'POST',
-    headers: {
-      'Authorization': `Bearer ${apiKey}`,
-      'Content-Type': 'application/json',
-      'anthropic-version': '2023-06-01'
-    },
-    body: JSON.stringify(requestBody)
-  })
+  try {
+    const response = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
+        'anthropic-version': '2023-06-01'
+      },
+      body: JSON.stringify(requestBody)
+    })
 
-  console.log('Claude API response status:', response.status)
-  
-  if (!response.ok) {
-    const errorText = await response.text()
-    console.error(`Claude API error ${response.status}:`, errorText)
+    console.log('Claude API response status:', response.status)
+    console.log('Claude API response ok:', response.ok)
     
-    if (response.status === 401) {
-      throw new Error('Claude API authentication failed. Please check your ANTHROPIC_API_KEY in Supabase secrets.')
-    } else if (response.status === 400) {
-      throw new Error('Claude API request invalid. Please check the request format.')
-    } else {
-      throw new Error(`Claude API error: ${response.status} - ${errorText}`)
+    if (!response.ok) {
+      const errorText = await response.text()
+      console.error(`Claude API error details:`)
+      console.error(`Status: ${response.status}`)
+      console.error(`Status Text: ${response.statusText}`)
+      console.error(`Error Response: ${errorText}`)
+      
+      if (response.status === 401) {
+        throw new Error('Claude API authentication failed. The API key is invalid or expired. Please verify your ANTHROPIC_API_KEY in Supabase secrets.')
+      } else if (response.status === 400) {
+        throw new Error(`Claude API request error: ${errorText}`)
+      } else if (response.status === 429) {
+        throw new Error('Claude API rate limit exceeded. Please try again later.')
+      } else {
+        throw new Error(`Claude API error (${response.status}): ${errorText}`)
+      }
     }
-  }
 
-  const data = await response.json()
-  console.log('Claude API response received successfully')
-  console.log('Response has content:', !!data.content)
-  console.log('Content length:', data.content?.[0]?.text?.length || 0)
-  
-  const content = data.content?.[0]?.text || ''
-  
-  if (!content) {
-    console.error('No content in Claude response:', JSON.stringify(data, null, 2))
-    throw new Error('Claude API returned empty content')
-  }
-  
-  return {
-    content,
-    confidence: 0.85
+    const data = await response.json()
+    console.log('Claude API response received successfully')
+    console.log('Response has content array:', Array.isArray(data.content))
+    console.log('Content array length:', data.content?.length || 0)
+    
+    if (data.content && data.content[0]) {
+      console.log('First content item type:', data.content[0].type)
+      console.log('First content item text length:', data.content[0].text?.length || 0)
+    }
+    
+    const content = data.content?.[0]?.text || ''
+    
+    if (!content) {
+      console.error('No content in Claude response:')
+      console.error('Full response:', JSON.stringify(data, null, 2))
+      throw new Error('Claude API returned empty content')
+    }
+    
+    console.log('Claude analysis completed successfully')
+    return {
+      content,
+      confidence: 0.85
+    }
+    
+  } catch (error) {
+    console.error('Error in callClaudeAPI:', error)
+    throw error
   }
 }
 
