@@ -34,6 +34,33 @@ interface PolygonPreviousClose {
   T: string;
 }
 
+interface PolygonRealTimeQuote {
+  symbol: string;
+  last: {
+    price: number;
+    size: number;
+    exchange: number;
+    timeframe: string;
+  };
+  min: {
+    c: number;
+    h: number;
+    l: number;
+    o: number;
+    t: number;
+    v: number;
+    vw: number;
+  };
+  prevDay: {
+    c: number;
+    h: number;
+    l: number;
+    o: number;
+    v: number;
+    vw: number;
+  };
+}
+
 interface PolygonOptionsContract {
   cfi?: string;
   contract_type?: string;
@@ -86,36 +113,59 @@ export class PolygonProvider implements StockProvider {
     try {
       console.log(`Fetching detailed quote for ${symbol}...`);
       
-      // Get current quote, previous close, and ticker details
-      const [previousClose, tickerDetails] = await Promise.all([
+      // Try to get real-time quote first, then fall back to previous close
+      const [realTimeQuote, previousClose, tickerDetails] = await Promise.allSettled([
+        this.getRealTimeQuote(symbol),
         this.getPreviousClose(symbol),
-        this.getTickerDetails(symbol).catch(() => null)
+        this.getTickerDetails(symbol)
       ]);
 
-      console.log(`Previous close data for ${symbol}:`, previousClose);
-      console.log(`Ticker details for ${symbol}:`, tickerDetails);
+      let currentPrice = 0;
+      let previousClosePrice = 0;
+      let volume = 0;
+      let companyName = `${symbol.toUpperCase()}`;
 
-      if (!previousClose) {
+      // Handle real-time quote
+      if (realTimeQuote.status === 'fulfilled' && realTimeQuote.value) {
+        currentPrice = realTimeQuote.value.last?.price || realTimeQuote.value.min?.c || 0;
+        previousClosePrice = realTimeQuote.value.prevDay?.c || 0;
+        volume = realTimeQuote.value.min?.v || 0;
+        console.log(`Real-time data for ${symbol}:`, realTimeQuote.value);
+      }
+
+      // Fallback to previous close if real-time fails
+      if (!currentPrice && previousClose.status === 'fulfilled' && previousClose.value) {
+        currentPrice = previousClose.value.c;
+        previousClosePrice = previousClose.value.o; // Use open as previous reference
+        volume = previousClose.value.v;
+        console.log(`Using previous close data for ${symbol}:`, previousClose.value);
+      }
+
+      // Handle company name
+      if (tickerDetails.status === 'fulfilled' && tickerDetails.value?.name) {
+        companyName = tickerDetails.value.name;
+      }
+
+      if (!currentPrice) {
         throw new Error(`No market data available for ${symbol}`);
       }
 
-      const currentPrice = previousClose.c;
-      const openPrice = previousClose.o;
-      const change = currentPrice - openPrice;
-      const changePercent = openPrice !== 0 ? (change / openPrice) * 100 : 0;
+      // Calculate change
+      const change = previousClosePrice ? currentPrice - previousClosePrice : 0;
+      const changePercent = previousClosePrice !== 0 ? (change / previousClosePrice) * 100 : 0;
 
       const quote: StockQuote = {
         symbol: symbol.toUpperCase(),
-        name: tickerDetails?.name || `${symbol.toUpperCase()} Corporation`,
+        name: companyName,
         price: Number(currentPrice.toFixed(2)),
         change: Number(change.toFixed(2)),
         changePercent: Number(changePercent.toFixed(2)),
-        volume: previousClose.v,
-        marketCap: tickerDetails?.market_cap,
+        volume: volume,
+        marketCap: tickerDetails.status === 'fulfilled' ? tickerDetails.value?.market_cap : undefined,
         lastUpdated: new Date().toISOString()
       };
 
-      console.log(`Processed quote for ${symbol}:`, quote);
+      console.log(`Final processed quote for ${symbol}:`, quote);
       return quote;
     } catch (error) {
       console.error(`Polygon API error for ${symbol}:`, error);
@@ -124,19 +174,60 @@ export class PolygonProvider implements StockProvider {
   }
 
   async getMultipleQuotes(symbols: string[]): Promise<StockQuote[]> {
-    // Polygon allows batch requests for grouped daily data
     try {
       const quotes = await Promise.all(
-        symbols.map(symbol => this.getQuote(symbol))
+        symbols.map(symbol => this.getQuote(symbol).catch(error => {
+          console.error(`Failed to fetch ${symbol}:`, error);
+          return null;
+        }))
       );
-      return quotes;
+      return quotes.filter(quote => quote !== null) as StockQuote[];
     } catch (error) {
       console.error('Polygon batch quote error:', error);
       throw error;
     }
   }
 
-  // Professional Polygon Features for Options Trading
+  // Try to get real-time quote (may require higher tier subscription)
+  private async getRealTimeQuote(symbol: string): Promise<PolygonRealTimeQuote | null> {
+    try {
+      const response = await fetch(`${this.baseUrl}/v2/snapshot/locale/us/markets/stocks/tickers/${symbol}?apikey=${this.apiKey}`);
+      if (!response.ok) return null;
+      
+      const data = await response.json();
+      return data.ticker || null;
+    } catch (error) {
+      console.error('Error fetching real-time quote:', error);
+      return null;
+    }
+  }
+
+  private async getPreviousClose(symbol: string): Promise<PolygonPreviousClose | null> {
+    try {
+      const response = await fetch(`${this.baseUrl}/v2/aggs/ticker/${symbol}/prev?apikey=${this.apiKey}`);
+      if (!response.ok) return null;
+      
+      const data = await response.json();
+      console.log(`Raw Polygon response for ${symbol}:`, data);
+      return data.results?.[0] || null;
+    } catch (error) {
+      console.error('Error fetching previous close:', error);
+      return null;
+    }
+  }
+
+  private async getTickerDetails(symbol: string): Promise<PolygonTickerDetails | null> {
+    try {
+      const response = await fetch(`${this.baseUrl}/v3/reference/tickers/${symbol}?apikey=${this.apiKey}`);
+      if (!response.ok) return null;
+      
+      const data = await response.json();
+      return data.results || null;
+    } catch (error) {
+      console.error('Error fetching ticker details:', error);
+      return null;
+    }
+  }
 
   async getOptionsChain(
     underlyingSymbol: string,
@@ -205,19 +296,16 @@ export class PolygonProvider implements StockProvider {
     return response.json();
   }
 
-  // Real-time WebSocket connection for live data
   createWebSocketConnection(symbols: string[], onMessage: (data: any) => void): WebSocket {
     const ws = new WebSocket(`${this.wsUrl}/stocks`);
     
     ws.onopen = () => {
       console.log('Polygon WebSocket connected');
-      // Authenticate
       ws.send(JSON.stringify({
         action: 'auth',
         params: this.apiKey
       }));
       
-      // Subscribe to symbols
       ws.send(JSON.stringify({
         action: 'subscribe',
         params: symbols.map(symbol => `T.${symbol}`).join(',')
@@ -236,48 +324,6 @@ export class PolygonProvider implements StockProvider {
     return ws;
   }
 
-  // Private helper methods
-  private async getCurrentQuote(symbol: string): Promise<PolygonQuote | null> {
-    try {
-      const response = await fetch(`${this.baseUrl}/v2/aggs/ticker/${symbol}/prev?apikey=${this.apiKey}`);
-      if (!response.ok) return null;
-      
-      const data = await response.json();
-      return data.results?.[0] || null;
-    } catch (error) {
-      console.error('Error fetching current quote:', error);
-      return null;
-    }
-  }
-
-  private async getPreviousClose(symbol: string): Promise<PolygonPreviousClose | null> {
-    try {
-      const response = await fetch(`${this.baseUrl}/v2/aggs/ticker/${symbol}/prev?apikey=${this.apiKey}`);
-      if (!response.ok) return null;
-      
-      const data = await response.json();
-      console.log(`Raw Polygon response for ${symbol}:`, data);
-      return data.results?.[0] || null;
-    } catch (error) {
-      console.error('Error fetching previous close:', error);
-      return null;
-    }
-  }
-
-  private async getTickerDetails(symbol: string): Promise<PolygonTickerDetails | null> {
-    try {
-      const response = await fetch(`${this.baseUrl}/v3/reference/tickers/${symbol}?apikey=${this.apiKey}`);
-      if (!response.ok) return null;
-      
-      const data = await response.json();
-      return data.results || null;
-    } catch (error) {
-      console.error('Error fetching ticker details:', error);
-      return null;
-    }
-  }
-
-  // Advanced options analysis methods
   async getOptionsAnalysis(symbol: string, expiration: string) {
     const optionsChain = await this.getOptionsChain(symbol, expiration);
     
@@ -301,7 +347,6 @@ export class PolygonProvider implements StockProvider {
     };
   }
 
-  // Wheel strategy specific data
   async getWheelStrategyData(symbol: string, targetStrike?: number) {
     const [stockQuote, optionsChain, historicalData] = await Promise.all([
       this.getQuote(symbol),
@@ -345,6 +390,6 @@ export class PolygonProvider implements StockProvider {
     const meanReturn = returns.reduce((sum, ret) => sum + ret, 0) / returns.length;
     const variance = returns.reduce((sum, ret) => sum + Math.pow(ret - meanReturn, 2), 0) / returns.length;
     
-    return Math.sqrt(variance * 252) * 100; // Annualized volatility as percentage
+    return Math.sqrt(variance * 252) * 100;
   }
 }
