@@ -1,4 +1,3 @@
-
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
 
 const corsHeaders = {
@@ -66,13 +65,24 @@ serve(async (req) => {
       analysis = result.content
       confidence = result.confidence
     } else {
-      // Default to Claude
-      const anthropicKey = Deno.env.get('ANTHROPIC_API_KEY')
+      // Default to Claude - try multiple possible environment variable names
+      let anthropicKey = Deno.env.get('ANTHROPIC_API_KEY') || 
+                        Deno.env.get('CLAUDE_API_KEY') || 
+                        Deno.env.get('ANTHROPIC_KEY')
+      
+      console.log('Checking for Claude API key...')
+      console.log('ANTHROPIC_API_KEY exists:', !!Deno.env.get('ANTHROPIC_API_KEY'))
+      console.log('CLAUDE_API_KEY exists:', !!Deno.env.get('CLAUDE_API_KEY'))
+      console.log('ANTHROPIC_KEY exists:', !!Deno.env.get('ANTHROPIC_KEY'))
+      
       if (!anthropicKey) {
-        console.error('Anthropic API key not found')
-        throw new Error('Anthropic API key not configured')
+        console.error('Claude/Anthropic API key not found in any expected environment variable')
+        console.error('Available env vars:', Object.keys(Deno.env.toObject()).filter(key => key.includes('ANTHROPIC') || key.includes('CLAUDE')))
+        throw new Error('Claude API key not configured. Please add ANTHROPIC_API_KEY to your Supabase secrets.')
       }
-      console.log('Anthropic API key found, making request...')
+      
+      console.log('Claude API key found, making request...')
+      console.log('Using key from env var with length:', anthropicKey.length)
       
       const result = await callClaudeAPI(anthropicKey, contextPrompt, maxTokens)
       analysis = result.content
@@ -248,7 +258,21 @@ Provide comprehensive financial analysis with specific insights and actionable r
 async function callClaudeAPI(apiKey: string, prompt: string, maxTokens: number) {
   console.log('Making Claude API request...')
   console.log('API Key length:', apiKey ? apiKey.length : 0)
-  console.log('API Key prefix:', apiKey ? apiKey.substring(0, 8) + '...' : 'none')
+  console.log('API Key starts with sk-ant:', apiKey ? apiKey.startsWith('sk-ant-') : false)
+  
+  const requestBody = {
+    model: 'claude-3-5-sonnet-20241022',
+    max_tokens: Math.min(maxTokens, 4000),
+    temperature: 0.3,
+    messages: [
+      {
+        role: 'user',
+        content: prompt
+      }
+    ]
+  }
+  
+  console.log('Request body prepared, making API call...')
   
   const response = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
@@ -257,34 +281,38 @@ async function callClaudeAPI(apiKey: string, prompt: string, maxTokens: number) 
       'Content-Type': 'application/json',
       'anthropic-version': '2023-06-01'
     },
-    body: JSON.stringify({
-      model: 'claude-3-5-sonnet-20241022',
-      max_tokens: Math.min(maxTokens, 4000),
-      temperature: 0.3,
-      messages: [
-        {
-          role: 'user',
-          content: prompt
-        }
-      ]
-    })
+    body: JSON.stringify(requestBody)
   })
 
   console.log('Claude API response status:', response.status)
-  console.log('Claude API response headers:', Object.fromEntries(response.headers.entries()))
-
+  
   if (!response.ok) {
     const errorText = await response.text()
     console.error(`Claude API error ${response.status}:`, errorText)
-    throw new Error(`Claude API error: ${response.status} - ${errorText}`)
+    
+    if (response.status === 401) {
+      throw new Error('Claude API authentication failed. Please check your ANTHROPIC_API_KEY in Supabase secrets.')
+    } else if (response.status === 400) {
+      throw new Error('Claude API request invalid. Please check the request format.')
+    } else {
+      throw new Error(`Claude API error: ${response.status} - ${errorText}`)
+    }
   }
 
   const data = await response.json()
   console.log('Claude API response received successfully')
-  console.log('Response structure:', Object.keys(data))
+  console.log('Response has content:', !!data.content)
+  console.log('Content length:', data.content?.[0]?.text?.length || 0)
+  
+  const content = data.content?.[0]?.text || ''
+  
+  if (!content) {
+    console.error('No content in Claude response:', JSON.stringify(data, null, 2))
+    throw new Error('Claude API returned empty content')
+  }
   
   return {
-    content: data.content?.[0]?.text || '',
+    content,
     confidence: 0.85
   }
 }
