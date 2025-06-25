@@ -49,6 +49,8 @@ export interface DashboardContentProps {
   onSelectStock: (symbol: string) => void;
   onRefreshReport: () => void;
   onRefreshAll: () => void;
+  onRefreshWatchlist: () => void;
+  isWatchlistRefreshing: boolean;
 }
 
 export interface WatchlistPanelProps {

@@ -20,6 +20,8 @@ interface DashboardContentProps {
   onSelectStock: (symbol: string) => void;
   onRefreshReport: () => void;
   onRefreshAll: () => void;
+  onRefreshWatchlist: () => void;
+  isWatchlistRefreshing: boolean;
 }
 
 const DashboardContent: React.FC<DashboardContentProps> = ({
@@ -34,7 +36,9 @@ const DashboardContent: React.FC<DashboardContentProps> = ({
   onRemoveStock,
   onSelectStock,
   onRefreshReport,
-  onRefreshAll
+  onRefreshAll,
+  onRefreshWatchlist,
+  isWatchlistRefreshing
 }) => {
   switch (activeTab) {
     case 'watchlist':
