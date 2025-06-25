@@ -1,3 +1,4 @@
+
 import React, { useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -47,23 +48,69 @@ const HybridAIInsightCard: React.FC<HybridAIInsightCardProps> = ({
   };
 
   const formatAnalysisContent = (content: string) => {
-    // Split content into structured sections
-    const sections = content.split(/\*\*([^*]+)\*\*/g);
+    // Split content by headers and bullet points
+    const lines = content.split('\n').filter(line => line.trim());
     const formatted = [];
     
-    for (let i = 0; i < sections.length; i++) {
-      if (i % 2 === 0) {
-        // Regular text
-        if (sections[i].trim()) {
-          formatted.push({ type: 'text', content: sections[i].trim() });
-        }
-      } else {
-        // Bold headers
-        formatted.push({ type: 'header', content: sections[i] });
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i].trim();
+      
+      // Skip empty lines
+      if (!line) continue;
+      
+      // Main headers (### or ####)
+      if (line.startsWith('###') || line.startsWith('####')) {
+        const headerText = line.replace(/^#+\s*/, '').replace(/#+$/, '').trim();
+        formatted.push({ type: 'header', content: headerText });
+        continue;
       }
+      
+      // Bold headers (**text**)
+      if (line.match(/^\*\*[^*]+\*\*:?\s*$/)) {
+        const headerText = line.replace(/\*\*/g, '').replace(/:$/, '').trim();
+        formatted.push({ type: 'subheader', content: headerText });
+        continue;
+      }
+      
+      // Bullet points
+      if (line.startsWith('•') || line.startsWith('-') || line.match(/^\d+\./)) {
+        const bulletText = line.replace(/^[•-]\s*/, '').replace(/^\d+\.\s*/, '').trim();
+        formatted.push({ type: 'bullet', content: bulletText });
+        continue;
+      }
+      
+      // Regular text paragraphs
+      formatted.push({ type: 'text', content: line });
     }
     
     return formatted;
+  };
+
+  const highlightNumbers = (text: string) => {
+    return text.split(/(\$[\d,]+\.?\d*|[\d,]+\.?\d*%|[\d,]+\.?\d*|\b\d{4}\b|\[\d+\])/g).map((part, index) => {
+      // Dollar amounts
+      if (/^\$[\d,]+\.?\d*$/.test(part)) {
+        return <span key={index} className="text-emerald-400 font-semibold bg-emerald-400/10 px-1.5 py-0.5 rounded text-sm">{part}</span>;
+      }
+      // Percentages
+      if (/^[\d,]+\.?\d*%$/.test(part)) {
+        const isNegative = text.includes('-' + part) || text.includes('(' + part);
+        return <span key={index} className={`font-semibold px-1.5 py-0.5 rounded text-sm ${isNegative ? 'text-red-400 bg-red-400/10' : 'text-green-400 bg-green-400/10'}`}>{part}</span>;
+      }
+      // Regular numbers
+      if (/^[\d,]+\.?\d*$/.test(part) && part.length > 2) {
+        return <span key={index} className="text-cyan-400 font-semibold bg-cyan-400/10 px-1.5 py-0.5 rounded text-sm">{part}</span>;
+      }
+      // Years
+      if (/^\b\d{4}\b$/.test(part)) {
+        return <span key={index} className="text-blue-400 font-medium bg-blue-400/10 px-1.5 py-0.5 rounded text-sm">{part}</span>;
+      }
+      // References [1], [2], etc.
+      if (/^\[\d+\]$/.test(part)) {
+        return <span key={index} className="text-slate-400 text-xs bg-slate-700/30 px-1 py-0.5 rounded">{part}</span>;
+      }
+      return <span key={index}>{part}</span>;
+    });
   };
 
   if (error) {
@@ -193,35 +240,39 @@ const HybridAIInsightCard: React.FC<HybridAIInsightCardProps> = ({
         ) : (
           <div className="space-y-4">
             <div className="bg-gradient-to-br from-slate-800/80 to-slate-900/80 rounded-xl p-6 border border-slate-600/30 backdrop-blur-sm">
-              <div className="prose prose-invert prose-sm max-w-none">
+              <div className="space-y-4">
                 {formatAnalysisContent(analysis.content).map((section, index) => (
-                  <div key={index} className="mb-4 last:mb-0">
-                    {section.type === 'header' ? (
-                      <h4 className="text-white font-semibold text-sm mb-2 flex items-center gap-2 border-b border-slate-600/30 pb-2">
-                        <div className="w-1.5 h-1.5 bg-gradient-to-r from-purple-400 to-cyan-400 rounded-full"></div>
-                        {section.content}
-                      </h4>
-                    ) : (
-                      <div className="text-slate-200 text-sm leading-relaxed font-medium">
-                        {section.content.split(/(\d+\.\s|\[\d+\]|\$\d+(?:\.\d+)?|%|\d{4})/g).map((part, partIndex) => {
-                          // Highlight numbers, percentages, and dollar amounts
-                          if (/^\d+\.$/.test(part)) {
-                            return <span key={partIndex} className="text-cyan-400 font-semibold">{part}</span>;
-                          }
-                          if (/^\$\d+(?:\.\d+)?$/.test(part)) {
-                            return <span key={partIndex} className="text-green-400 font-semibold">{part}</span>;
-                          }
-                          if (/^\d+%$/.test(part) || /^%$/.test(part)) {
-                            return <span key={partIndex} className="text-purple-400 font-semibold">{part}</span>;
-                          }
-                          if (/^\[\d+\]$/.test(part)) {
-                            return <span key={partIndex} className="text-slate-400 text-xs">{part}</span>;
-                          }
-                          if (/^\d{4}$/.test(part)) {
-                            return <span key={partIndex} className="text-blue-400 font-medium">{part}</span>;
-                          }
-                          return <span key={partIndex}>{part}</span>;
-                        })}
+                  <div key={index}>
+                    {section.type === 'header' && (
+                      <div className="flex items-center gap-3 mb-4 pb-3 border-b border-slate-600/30">
+                        <div className="w-2 h-2 bg-gradient-to-r from-purple-400 to-cyan-400 rounded-full"></div>
+                        <h3 className="text-slate-100 font-bold text-base tracking-tight">
+                          {section.content}
+                        </h3>
+                      </div>
+                    )}
+                    
+                    {section.type === 'subheader' && (
+                      <div className="flex items-center gap-2 mb-3 mt-6">
+                        <div className="w-1.5 h-1.5 bg-cyan-400 rounded-full"></div>
+                        <h4 className="text-slate-200 font-semibold text-sm">
+                          {section.content}
+                        </h4>
+                      </div>
+                    )}
+                    
+                    {section.type === 'bullet' && (
+                      <div className="flex items-start gap-3 mb-3 ml-4">
+                        <div className="w-1 h-1 bg-slate-400 rounded-full mt-2.5 flex-shrink-0"></div>
+                        <div className="text-slate-300 text-sm leading-relaxed">
+                          {highlightNumbers(section.content)}
+                        </div>
+                      </div>
+                    )}
+                    
+                    {section.type === 'text' && (
+                      <div className="text-slate-300 text-sm leading-relaxed mb-3 pl-2">
+                        {highlightNumbers(section.content)}
                       </div>
                     )}
                   </div>
