@@ -6,25 +6,31 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { TrendingUp, BarChart3 } from 'lucide-react';
+import { useAuth } from '@/hooks/useAuth';
 
-interface AuthFormProps {
-  onLogin: (email: string) => void;
-}
-
-const AuthForm: React.FC<AuthFormProps> = ({ onLogin }) => {
+const AuthForm: React.FC = () => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [fullName, setFullName] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const { signIn, signUp } = useAuth();
 
-  const handleSubmit = async (e: React.FormEvent, isSignUp: boolean) => {
+  const handleSignIn = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsLoading(true);
     
-    // Simulate authentication
-    setTimeout(() => {
-      onLogin(email);
-      setIsLoading(false);
-    }, 1000);
+    const { error } = await signIn(email, password);
+    
+    setIsLoading(false);
+  };
+
+  const handleSignUp = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setIsLoading(true);
+    
+    const { error } = await signUp(email, password, fullName);
+    
+    setIsLoading(false);
   };
 
   return (
@@ -41,7 +47,7 @@ const AuthForm: React.FC<AuthFormProps> = ({ onLogin }) => {
 
         <Card className="bg-slate-800 border-slate-700">
           <CardHeader>
-            <CardTitle className="text-white text-center">Welcome Back</CardTitle>
+            <CardTitle className="text-white text-center">Welcome</CardTitle>
             <CardDescription className="text-slate-400 text-center">
               Access your trading dashboard
             </CardDescription>
@@ -50,7 +56,7 @@ const AuthForm: React.FC<AuthFormProps> = ({ onLogin }) => {
             <Tabs defaultValue="login" className="w-full">
               <TabsList className="grid w-full grid-cols-2 bg-slate-700">
                 <TabsTrigger value="login" className="text-white data-[state=active]:bg-slate-600">
-                  Login
+                  Sign In
                 </TabsTrigger>
                 <TabsTrigger value="signup" className="text-white data-[state=active]:bg-slate-600">
                   Sign Up
@@ -58,7 +64,7 @@ const AuthForm: React.FC<AuthFormProps> = ({ onLogin }) => {
               </TabsList>
               
               <TabsContent value="login">
-                <form onSubmit={(e) => handleSubmit(e, false)} className="space-y-4">
+                <form onSubmit={handleSignIn} className="space-y-4">
                   <div className="space-y-2">
                     <Label htmlFor="email" className="text-white">Email</Label>
                     <Input
@@ -93,7 +99,19 @@ const AuthForm: React.FC<AuthFormProps> = ({ onLogin }) => {
               </TabsContent>
               
               <TabsContent value="signup">
-                <form onSubmit={(e) => handleSubmit(e, true)} className="space-y-4">
+                <form onSubmit={handleSignUp} className="space-y-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="signup-name" className="text-white">Full Name</Label>
+                    <Input
+                      id="signup-name"
+                      type="text"
+                      value={fullName}
+                      onChange={(e) => setFullName(e.target.value)}
+                      placeholder="John Doe"
+                      className="bg-slate-700 border-slate-600 text-white"
+                      required
+                    />
+                  </div>
                   <div className="space-y-2">
                     <Label htmlFor="signup-email" className="text-white">Email</Label>
                     <Input
@@ -115,6 +133,7 @@ const AuthForm: React.FC<AuthFormProps> = ({ onLogin }) => {
                       onChange={(e) => setPassword(e.target.value)}
                       className="bg-slate-700 border-slate-600 text-white"
                       required
+                      minLength={6}
                     />
                   </div>
                   <Button 

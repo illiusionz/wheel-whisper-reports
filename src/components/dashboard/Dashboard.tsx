@@ -1,15 +1,11 @@
 
 import React, { useState, useEffect } from 'react';
+import { useAuth } from '@/hooks/useAuth';
 import Sidebar from './Sidebar';
 import WatchlistPanel from './WatchlistPanel';
 import MCPReport from './MCPReport';
 import SchedulePanel from './SchedulePanel';
 import SettingsPanel from './SettingsPanel';
-
-interface DashboardProps {
-  userEmail: string;
-  onLogout: () => void;
-}
 
 interface Stock {
   symbol: string;
@@ -19,7 +15,8 @@ interface Stock {
   changePercent: number;
 }
 
-const Dashboard: React.FC<DashboardProps> = ({ userEmail, onLogout }) => {
+const Dashboard: React.FC = () => {
+  const { user, signOut } = useAuth();
   const [activeTab, setActiveTab] = useState('dashboard');
   const [selectedStock, setSelectedStock] = useState<string | null>(null);
   const [watchlist, setWatchlist] = useState<Stock[]>([
@@ -31,7 +28,7 @@ const Dashboard: React.FC<DashboardProps> = ({ userEmail, onLogout }) => {
   const [isRefreshing, setIsRefreshing] = useState(false);
 
   const handleAddStock = (symbol: string) => {
-    // Simulate adding a new stock with mock data
+    // Simulate adding a new stock with mock data - will be replaced with real Supabase integration
     const newStock: Stock = {
       symbol,
       name: `${symbol} Corporation`,
@@ -183,8 +180,8 @@ const Dashboard: React.FC<DashboardProps> = ({ userEmail, onLogout }) => {
       <Sidebar
         activeTab={activeTab}
         onTabChange={setActiveTab}
-        userEmail={userEmail}
-        onLogout={onLogout}
+        userEmail={user?.email || ''}
+        onLogout={signOut}
       />
       
       <main className="flex-1 overflow-auto">

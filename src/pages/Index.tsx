@@ -1,24 +1,25 @@
 
-import React, { useState } from 'react';
+import React from 'react';
+import { useAuth } from '@/hooks/useAuth';
 import AuthForm from '@/components/auth/AuthForm';
 import Dashboard from '@/components/dashboard/Dashboard';
 
 const Index = () => {
-  const [user, setUser] = useState<string | null>(null);
+  const { user, loading } = useAuth();
 
-  const handleLogin = (email: string) => {
-    setUser(email);
-  };
-
-  const handleLogout = () => {
-    setUser(null);
-  };
-
-  if (!user) {
-    return <AuthForm onLogin={handleLogin} />;
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-slate-900 flex items-center justify-center">
+        <div className="text-white text-lg">Loading...</div>
+      </div>
+    );
   }
 
-  return <Dashboard userEmail={user} onLogout={handleLogout} />;
+  if (!user) {
+    return <AuthForm />;
+  }
+
+  return <Dashboard />;
 };
 
 export default Index;
