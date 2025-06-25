@@ -2,7 +2,8 @@ import { useState, useEffect } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
 import { useToast } from '@/hooks/use-toast';
-import { getStockService } from '@/services/stock';
+import { useRealTimeData } from '@/hooks/useRealTimeData';
+import { StockQuote } from '@/types/stock';
 
 interface Stock {
   symbol: string;
@@ -28,6 +29,62 @@ export const useWatchlist = () => {
   const { toast } = useToast();
   const [watchlist, setWatchlist] = useState<Stock[]>([]);
   const [loading, setLoading] = useState(true);
+  const [watchlistSymbols, setWatchlistSymbols] = useState<string[]>([]);
+
+  // Use real-time data hook for watchlist updates
+  const { 
+    data: realTimeData, 
+    isLoading: isRealTimeLoading,
+    lastUpdated,
+    isAutoRefreshActive,
+    startAutoRefresh,
+    stopAutoRefresh
+  } = useRealTimeData({
+    symbols: watchlistSymbols,
+    refreshInterval: 15000, // 15 seconds for watchlist
+    enableAutoRefresh: true,
+    onDataUpdate: (data) => {
+      if (Array.isArray(data)) {
+        updateWatchlistWithRealTimeData(data);
+      }
+    },
+    onError: (error) => {
+      console.error('Real-time watchlist update failed:', error);
+    }
+  });
+
+  const updateWatchlistWithRealTimeData = async (stockQuotes: StockQuote[]) => {
+    if (!user) return;
+
+    const formattedWatchlist: Stock[] = stockQuotes.map(quote => ({
+      symbol: quote.symbol,
+      name: quote.name,
+      price: quote.price,
+      change: quote.change,
+      changePercent: quote.changePercent,
+    }));
+
+    setWatchlist(formattedWatchlist);
+
+    // Update database with fresh data
+    for (const quote of stockQuotes) {
+      try {
+        await supabase
+          .from('watchlists')
+          .update({
+            name: quote.name,
+            price: quote.price,
+            change_amount: quote.change,
+            change_percent: quote.changePercent,
+            updated_at: new Date().toISOString()
+          })
+          .eq('user_id', user.id)
+          .eq('symbol', quote.symbol);
+      } catch (error) {
+        console.error(`Failed to update ${quote.symbol} in database:`, error);
+      }
+    }
+  };
 
   const fetchWatchlist = async () => {
     if (!user) return;
@@ -49,64 +106,20 @@ export const useWatchlist = () => {
         return;
       }
 
-      // Fetch real-time stock data for all symbols
-      if (data.length > 0) {
-        const stockService = getStockService();
-        const symbols = data.map(item => item.symbol);
-        
-        try {
-          const stockQuotes = await stockService.getMultipleQuotes(symbols);
-          
-          // Update database with fresh stock data
-          const updates = stockQuotes.map(quote => ({
-            symbol: quote.symbol,
-            name: quote.name,
-            price: quote.price,
-            change_amount: quote.change,
-            change_percent: quote.changePercent,
-            updated_at: new Date().toISOString()
-          }));
+      // Extract symbols for real-time updates
+      const symbols = data.map(item => item.symbol);
+      setWatchlistSymbols(symbols);
 
-          // Batch update the database
-          for (const update of updates) {
-            await supabase
-              .from('watchlists')
-              .update({
-                name: update.name,
-                price: update.price,
-                change_amount: update.change_amount,
-                change_percent: update.change_percent,
-                updated_at: update.updated_at
-              })
-              .eq('user_id', user.id)
-              .eq('symbol', update.symbol);
-          }
-
-          // Set the watchlist with fresh data
-          const formattedWatchlist: Stock[] = stockQuotes.map(quote => ({
-            symbol: quote.symbol,
-            name: quote.name,
-            price: quote.price,
-            change: quote.change,
-            changePercent: quote.changePercent,
-          }));
-
-          setWatchlist(formattedWatchlist);
-        } catch (stockError) {
-          console.error('Error fetching stock data:', stockError);
-          // Fall back to database data if stock service fails
-          const formattedWatchlist: Stock[] = data.map((item: WatchlistItem) => ({
-            symbol: item.symbol,
-            name: item.name,
-            price: item.price || 0,
-            change: item.change_amount || 0,
-            changePercent: item.change_percent || 0,
-          }));
-          setWatchlist(formattedWatchlist);
-        }
-      } else {
-        setWatchlist([]);
-      }
+      // Set initial watchlist data from database
+      const formattedWatchlist: Stock[] = data.map((item: WatchlistItem) => ({
+        symbol: item.symbol,
+        name: item.name,
+        price: item.price || 0,
+        change: item.change_amount || 0,
+        changePercent: item.change_percent || 0,
+      }));
+      
+      setWatchlist(formattedWatchlist);
     } catch (error) {
       console.error('Error fetching watchlist:', error);
       toast({
@@ -152,6 +165,9 @@ export const useWatchlist = () => {
         throw error;
       }
 
+      // Update symbols list for real-time updates
+      setWatchlistSymbols(prev => [...prev, stockQuote.symbol]);
+
       const newStock: Stock = {
         symbol: stockQuote.symbol,
         name: stockQuote.name,
@@ -188,6 +204,8 @@ export const useWatchlist = () => {
 
       if (error) throw error;
 
+      // Update symbols list for real-time updates
+      setWatchlistSymbols(prev => prev.filter(s => s !== symbol));
       setWatchlist(prev => prev.filter(stock => stock.symbol !== symbol));
       
       toast({
@@ -209,15 +227,20 @@ export const useWatchlist = () => {
       fetchWatchlist();
     } else {
       setWatchlist([]);
+      setWatchlistSymbols([]);
       setLoading(false);
     }
   }, [user]);
 
   return {
     watchlist,
-    loading,
+    loading: loading || isRealTimeLoading,
     addStock,
     removeStock,
     refetch: fetchWatchlist,
+    lastUpdated,
+    isAutoRefreshActive,
+    startAutoRefresh,
+    stopAutoRefresh,
   };
 };

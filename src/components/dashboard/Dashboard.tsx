@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '@/hooks/useAuth';
 import { useWatchlist } from '@/hooks/useWatchlist';
+import { RealTimeDataProvider } from '@/contexts/RealTimeDataContext';
 import Sidebar from './Sidebar';
 import WatchlistPanel from './WatchlistPanel';
 import MCPReport from './MCPReport';
@@ -11,7 +12,7 @@ import { getStockService } from '@/services/stock';
 
 const Dashboard: React.FC = () => {
   const { user, signOut } = useAuth();
-  const { watchlist, loading: watchlistLoading, addStock, removeStock } = useWatchlist();
+  const { watchlist, loading: watchlistLoading, addStock, removeStock, lastUpdated } = useWatchlist();
   const [activeTab, setActiveTab] = useState('dashboard');
   const [selectedStock, setSelectedStock] = useState<string | null>(null);
   const [reports, setReports] = useState<{[key: string]: any}>({});
@@ -170,6 +171,11 @@ const Dashboard: React.FC = () => {
             <div className="bg-gradient-to-r from-green-900/20 to-blue-900/20 border border-green-700/30 rounded-lg p-6">
               <h1 className="text-3xl font-bold text-white mb-2">Welcome to WheelTrader Pro</h1>
               <p className="text-slate-300">Your comprehensive MCP Wheel Strategy analytics dashboard</p>
+              {lastUpdated && (
+                <p className="text-sm text-slate-400 mt-2">
+                  Watchlist last updated: {lastUpdated.toLocaleTimeString()}
+                </p>
+              )}
             </div>
             
             <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
@@ -210,20 +216,22 @@ const Dashboard: React.FC = () => {
   };
 
   return (
-    <div className="flex h-screen bg-slate-900">
-      <Sidebar
-        activeTab={activeTab}
-        onTabChange={setActiveTab}
-        userEmail={user?.email || ''}
-        onLogout={signOut}
-      />
-      
-      <main className="flex-1 overflow-auto">
-        <div className="p-6">
-          {renderActivePanel()}
-        </div>
-      </main>
-    </div>
+    <RealTimeDataProvider>
+      <div className="flex h-screen bg-slate-900">
+        <Sidebar
+          activeTab={activeTab}
+          onTabChange={setActiveTab}
+          userEmail={user?.email || ''}
+          onLogout={signOut}
+        />
+        
+        <main className="flex-1 overflow-auto">
+          <div className="p-6">
+            {renderActivePanel()}
+          </div>
+        </main>
+      </div>
+    </RealTimeDataProvider>
   );
 };
 
