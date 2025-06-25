@@ -227,7 +227,7 @@ export class PolygonProvider implements StockProvider {
       );
 
       return results
-        .filter((result): result is PromisedSettledResult<StockQuote> & { status: 'fulfilled' } => 
+        .filter((result): result is PromiseSettledResult<StockQuote> & { status: 'fulfilled' } => 
           result.status === 'fulfilled'
         )
         .map(result => result.value);

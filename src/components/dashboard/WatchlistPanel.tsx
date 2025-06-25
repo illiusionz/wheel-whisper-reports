@@ -4,7 +4,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
-import { Plus, X, Search, TrendingUp, TrendingDown, Clock } from 'lucide-react';
+import { Plus, X, Search, TrendingUp, TrendingDown, Clock, RefreshCw } from 'lucide-react';
 import { ErrorBoundary } from '@/components/error/ErrorBoundary';
 import { MarketStatus } from '@/components/ui/market-status';
 import { MarketHoursService } from '@/services/market/MarketHoursService';
@@ -22,13 +22,19 @@ interface WatchlistPanelProps {
   onAddStock: (symbol: string) => void;
   onRemoveStock: (symbol: string) => void;
   onSelectStock: (symbol: string) => void;
+  onRefresh?: () => void;
+  isRefreshing?: boolean;
+  lastUpdated?: Date | null;
 }
 
 const WatchlistPanel: React.FC<WatchlistPanelProps> = ({
   watchlist,
   onAddStock,
   onRemoveStock,
-  onSelectStock
+  onSelectStock,
+  onRefresh,
+  isRefreshing = false,
+  lastUpdated
 }) => {
   const [newSymbol, setNewSymbol] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
@@ -63,8 +69,28 @@ const WatchlistPanel: React.FC<WatchlistPanelProps> = ({
                   Manage your tracked U.S. stock tickers for MCP reports
                 </CardDescription>
               </div>
-              <MarketStatus />
+              <div className="flex items-center gap-2">
+                <MarketStatus />
+                {onRefresh && (
+                  <Button
+                    onClick={onRefresh}
+                    disabled={isRefreshing}
+                    size="sm"
+                    variant="outline"
+                    className="border-slate-600 text-slate-300 hover:bg-slate-700"
+                  >
+                    <RefreshCw className={`h-4 w-4 mr-1 ${isRefreshing ? 'animate-spin' : ''}`} />
+                    {isRefreshing ? 'Updating...' : 'Refresh'}
+                  </Button>
+                )}
+              </div>
             </div>
+            {lastUpdated && (
+              <div className="flex items-center gap-1 text-xs text-slate-500">
+                <Clock className="h-3 w-3" />
+                Last updated: {lastUpdated.toLocaleTimeString()}
+              </div>
+            )}
           </CardHeader>
           <CardContent>
             {!shouldMakeApiCall && (

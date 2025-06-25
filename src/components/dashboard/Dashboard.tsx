@@ -12,8 +12,16 @@ import DashboardContent from './DashboardContent';
 
 const Dashboard: React.FC = () => {
   const { user, signOut } = useAuth();
-  const { watchlist, loading: watchlistLoading, addStock, removeStock, lastUpdated } = useWatchlist();
-  const { reports, isRefreshing, handleRefreshReport, handleRefreshAll, removeReport } = useReportManager();
+  const { 
+    watchlist, 
+    loading: watchlistLoading, 
+    isRefreshing,
+    addStock, 
+    removeStock, 
+    refreshWatchlist,
+    lastUpdated 
+  } = useWatchlist();
+  const { reports, isRefreshing: reportsRefreshing, handleRefreshReport, handleRefreshAll, removeReport } = useReportManager();
   const [activeTab, setActiveTab] = useState('dashboard');
   const [selectedStock, setSelectedStock] = useState<string | null>(null);
 
@@ -77,12 +85,14 @@ const Dashboard: React.FC = () => {
                     selectedStock={selectedStock}
                     lastUpdated={lastUpdated}
                     watchlistLoading={watchlistLoading}
-                    isRefreshing={isRefreshing}
+                    isRefreshing={reportsRefreshing}
                     onAddStock={handleAddStock}
                     onRemoveStock={handleRemoveStock}
                     onSelectStock={handleSelectStock}
                     onRefreshReport={handleRefreshReportWrapper}
                     onRefreshAll={handleRefreshAllWrapper}
+                    onRefreshWatchlist={refreshWatchlist}
+                    isWatchlistRefreshing={isRefreshing}
                   />
                 </ErrorBoundary>
               </div>

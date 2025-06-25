@@ -1,6 +1,5 @@
 
 import { useCallback } from 'react';
-import { useRealTimeData } from '@/hooks/useRealTimeData';
 import { StockQuote } from '@/types/stock';
 import { Stock } from './types';
 
@@ -31,32 +30,13 @@ export const useWatchlistRealTime = ({
     onDatabaseUpdate(stockQuotes);
   }, [onDataUpdate, onDatabaseUpdate]);
 
-  const { 
-    data: realTimeData, 
-    isLoading: isRealTimeLoading,
-    lastUpdated,
-    isAutoRefreshActive,
-    startAutoRefresh,
-    stopAutoRefresh
-  } = useRealTimeData({
-    symbols: watchlistSymbols.length > 0 ? watchlistSymbols : undefined,
-    refreshInterval: 30000, // 30 seconds for watchlist (increased from 15s to be more conservative)
-    enableAutoRefresh: watchlistSymbols.length > 0,
-    onDataUpdate: (data) => {
-      if (Array.isArray(data)) {
-        updateWatchlistWithRealTimeData(data);
-      }
-    },
-    onError: (error) => {
-      console.error('Real-time watchlist update failed:', error);
-    }
-  });
-
+  // Return manual refresh capability instead of auto-refresh
   return {
-    isRealTimeLoading,
-    lastUpdated,
-    isAutoRefreshActive,
-    startAutoRefresh,
-    stopAutoRefresh
+    isRealTimeLoading: false,
+    lastUpdated: null,
+    isAutoRefreshActive: false,
+    startAutoRefresh: () => console.log('Auto-refresh disabled for rate limit protection'),
+    stopAutoRefresh: () => console.log('Auto-refresh already disabled'),
+    manualRefresh: updateWatchlistWithRealTimeData
   };
 };

@@ -4,12 +4,17 @@ import { useAuth } from '@/hooks/useAuth';
 import { Stock } from './watchlist/types';
 import { useWatchlistDatabase } from './watchlist/useWatchlistDatabase';
 import { useWatchlistRealTime } from './watchlist/useWatchlistRealTime';
+import { getStockService } from '@/services/stock';
+import { useToast } from '@/hooks/use-toast';
 
 export const useWatchlist = () => {
   const { user } = useAuth();
   const [watchlist, setWatchlist] = useState<Stock[]>([]);
   const [loading, setLoading] = useState(true);
+  const [isRefreshing, setIsRefreshing] = useState(false);
   const [watchlistSymbols, setWatchlistSymbols] = useState<string[]>([]);
+  const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
+  const { toast } = useToast();
 
   const {
     fetchWatchlistFromDB,
@@ -19,11 +24,7 @@ export const useWatchlist = () => {
   } = useWatchlistDatabase();
 
   const {
-    isRealTimeLoading,
-    lastUpdated,
-    isAutoRefreshActive,
-    startAutoRefresh,
-    stopAutoRefresh
+    manualRefresh
   } = useWatchlistRealTime({
     watchlistSymbols,
     onDataUpdate: setWatchlist,
@@ -39,6 +40,34 @@ export const useWatchlist = () => {
       setWatchlist(fetchedWatchlist);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const refreshWatchlist = async () => {
+    if (!user || watchlistSymbols.length === 0 || isRefreshing) return;
+
+    setIsRefreshing(true);
+    try {
+      const stockService = getStockService();
+      const quotes = await stockService.getMultipleQuotes(watchlistSymbols);
+      
+      if (quotes.length > 0) {
+        await manualRefresh(quotes);
+        setLastUpdated(new Date());
+        toast({
+          title: "Watchlist Updated",
+          description: `Updated ${quotes.length} stocks`,
+        });
+      }
+    } catch (error) {
+      console.error('Failed to refresh watchlist:', error);
+      toast({
+        title: "Refresh Failed",
+        description: "Failed to update watchlist. Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsRefreshing(false);
     }
   };
 
@@ -74,13 +103,15 @@ export const useWatchlist = () => {
 
   return {
     watchlist,
-    loading: loading || isRealTimeLoading,
+    loading,
+    isRefreshing,
     addStock,
     removeStock,
+    refreshWatchlist,
     refetch: fetchWatchlist,
     lastUpdated,
-    isAutoRefreshActive,
-    startAutoRefresh,
-    stopAutoRefresh,
+    isAutoRefreshActive: false,
+    startAutoRefresh: () => {},
+    stopAutoRefresh: () => {},
   };
 };
