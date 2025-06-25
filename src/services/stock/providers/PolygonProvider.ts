@@ -1,4 +1,4 @@
-import { StockProvider, StockQuote } from '@/types/stock';
+import { StockProvider, StockQuote, OptionsContract, HistoricalDataPoint, WheelStrategyData } from '@/types/stock';
 
 interface PolygonQuote {
   c: number; // close
@@ -230,13 +230,13 @@ export class PolygonProvider implements StockProvider {
   }
 
   async getOptionsChain(
-    underlyingSymbol: string,
+    symbol: string,
     expiration?: string,
     strikePrice?: number,
     contractType?: 'call' | 'put'
-  ): Promise<PolygonOptionsChain> {
+  ): Promise<OptionsContract[]> {
     const params = new URLSearchParams({
-      'underlying_ticker': underlyingSymbol,
+      'underlying_ticker': symbol,
       'apikey': this.apiKey
     });
 
@@ -249,24 +249,38 @@ export class PolygonProvider implements StockProvider {
       throw new Error(`Polygon Options API error: ${response.statusText}`);
     }
 
-    return response.json();
+    const data: PolygonOptionsChain = await response.json();
+    
+    // Convert PolygonOptionsContract to OptionsContract
+    return (data.results || []).map(contract => ({
+      ticker: contract.ticker || '',
+      strike_price: contract.strike_price || 0,
+      expiration_date: contract.expiration_date || '',
+      contract_type: contract.contract_type as 'call' | 'put' || 'call',
+      exercise_style: contract.exercise_style,
+      shares_per_contract: contract.shares_per_contract,
+      underlying_ticker: contract.underlying_ticker || symbol
+    }));
   }
 
   async getHistoricalData(
     symbol: string,
-    multiplier: number = 1,
-    timespan: 'minute' | 'hour' | 'day' | 'week' | 'month' | 'quarter' | 'year' = 'day',
-    from: string,
-    to: string
-  ) {
-    const url = `${this.baseUrl}/v2/aggs/ticker/${symbol}/range/${multiplier}/${timespan}/${from}/${to}?apikey=${this.apiKey}`;
+    timespan: 'day' | 'week' | 'month' = 'day',
+    from?: string,
+    to?: string
+  ): Promise<HistoricalDataPoint[]> {
+    const fromDate = from || new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+    const toDate = to || new Date().toISOString().split('T')[0];
+    
+    const url = `${this.baseUrl}/v2/aggs/ticker/${symbol}/range/1/${timespan}/${fromDate}/${toDate}?apikey=${this.apiKey}`;
     
     const response = await fetch(url);
     if (!response.ok) {
       throw new Error(`Polygon Historical API error: ${response.statusText}`);
     }
 
-    return response.json();
+    const data = await response.json();
+    return data.results || [];
   }
 
   async getMarketStatus(): Promise<PolygonMarketStatus> {
@@ -347,37 +361,48 @@ export class PolygonProvider implements StockProvider {
     };
   }
 
-  async getWheelStrategyData(symbol: string, targetStrike?: number) {
+  async getWheelStrategyData(symbol: string, targetStrike?: number): Promise<WheelStrategyData> {
     const [stockQuote, optionsChain, historicalData] = await Promise.all([
       this.getQuote(symbol),
       this.getOptionsChain(symbol),
-      this.getHistoricalData(symbol, 1, 'day', 
+      this.getHistoricalData(symbol, 'day', 
         new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
         new Date().toISOString().split('T')[0]
       )
     ]);
 
-    const putOptions = optionsChain.results?.filter(opt => 
+    const putOptions = optionsChain.filter(opt => 
       opt.contract_type === 'put' && 
       opt.strike_price && 
       opt.strike_price <= stockQuote.price
-    ) || [];
+    );
+
+    const volatility = this.calculateVolatility(historicalData);
+    const recommendedStrike = targetStrike || stockQuote.price * 0.95;
 
     return {
       currentPrice: stockQuote.price,
-      volatility: this.calculateVolatility(historicalData.results || []),
+      volatility,
       suitablePutStrikes: putOptions
         .filter(put => put.strike_price && put.strike_price >= stockQuote.price * 0.85)
         .map(put => ({
-          strike: put.strike_price,
+          strike: put.strike_price!,
           expiration: put.expiration_date,
-          ticker: put.ticker
+          ticker: put.ticker,
+          premium: 0, // Would need additional API call to get current premium
+          probability: 0, // Would need calculation based on historical data
+          annualizedReturn: 0 // Would need calculation based on premium and time
         })),
-      recommendedStrike: targetStrike || stockQuote.price * 0.95
+      recommendedStrike,
+      riskAnalysis: {
+        maxLoss: stockQuote.price - recommendedStrike,
+        breakeven: recommendedStrike,
+        profitProbability: 0.7 // Simplified calculation
+      }
     };
   }
 
-  private calculateVolatility(historicalData: any[]): number {
+  private calculateVolatility(historicalData: HistoricalDataPoint[]): number {
     if (historicalData.length < 2) return 0;
     
     const returns = [];

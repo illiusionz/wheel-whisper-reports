@@ -1,4 +1,6 @@
 
+import { StockQuote, MarketStatus, WheelStrategyData } from './stock';
+
 export interface RealTimeDataOptions {
   symbol?: string;
   symbols?: string[];

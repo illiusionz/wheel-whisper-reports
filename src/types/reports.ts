@@ -1,4 +1,6 @@
 
+import { StockQuote, WheelStrategyData } from './stock';
+
 export interface MCPReportSection {
   id: string;
   title: string;
