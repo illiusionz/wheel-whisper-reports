@@ -1,9 +1,9 @@
-
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { getStockService } from '@/services/stock';
 import { StockQuote } from '@/types/stock';
 import { useToast } from '@/hooks/use-toast';
 import { useErrorHandler } from '@/hooks/useErrorHandler';
+import { MarketHoursService } from '@/services/market/MarketHoursService';
 
 interface UseRealTimeDataOptions {
   symbol?: string;
@@ -12,6 +12,7 @@ interface UseRealTimeDataOptions {
   enableAutoRefresh?: boolean;
   onDataUpdate?: (data: StockQuote | StockQuote[]) => void;
   onError?: (error: Error) => void;
+  respectMarketHours?: boolean;
 }
 
 interface UseRealTimeDataReturn {
@@ -24,6 +25,7 @@ interface UseRealTimeDataReturn {
   stopAutoRefresh: () => void;
   isAutoRefreshActive: boolean;
   retryConnection: () => void;
+  marketStatus: 'open' | 'closed' | 'pre-market' | 'after-hours';
 }
 
 export const useRealTimeData = (options: UseRealTimeDataOptions): UseRealTimeDataReturn => {
@@ -33,13 +35,15 @@ export const useRealTimeData = (options: UseRealTimeDataOptions): UseRealTimeDat
     refreshInterval = 30000,
     enableAutoRefresh = false,
     onDataUpdate,
-    onError
+    onError,
+    respectMarketHours = true
   } = options;
 
   const [data, setData] = useState<StockQuote | StockQuote[] | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
   const [isAutoRefreshActive, setIsAutoRefreshActive] = useState(enableAutoRefresh);
+  const [marketStatus, setMarketStatus] = useState<'open' | 'closed' | 'pre-market' | 'after-hours'>('closed');
 
   const intervalRef = useRef<NodeJS.Timeout | null>(null);
   const mountedRef = useRef(true);
@@ -49,12 +53,31 @@ export const useRealTimeData = (options: UseRealTimeDataOptions): UseRealTimeDat
   const { error, handleError, clearError, retry, canRetry } = useErrorHandler({
     maxRetries: 3,
     onError,
-    showToast: false // We'll handle toasts manually for better UX
+    showToast: false
   });
+
+  // Update market status
+  useEffect(() => {
+    const updateMarketStatus = () => {
+      const marketHours = MarketHoursService.getCurrentMarketHours();
+      setMarketStatus(marketHours.currentStatus);
+    };
+
+    updateMarketStatus();
+    const interval = setInterval(updateMarketStatus, 60000); // Update every minute
+
+    return () => clearInterval(interval);
+  }, []);
 
   const fetchData = useCallback(async (forceRefresh = false) => {
     if (!symbol && !symbols?.length) return;
     if (!mountedRef.current) return;
+
+    // Check market hours before making API calls
+    if (respectMarketHours && !forceRefresh && !MarketHoursService.shouldMakeApiCall()) {
+      console.log('Skipping API call - market is closed');
+      return;
+    }
 
     // Prevent rapid successive calls
     const now = Date.now();
@@ -94,8 +117,14 @@ export const useRealTimeData = (options: UseRealTimeDataOptions): UseRealTimeDat
       const error = err instanceof Error ? err : new Error('Failed to fetch stock data');
       handleError(error, 'real-time data fetch');
       
-      // Only show toast for critical errors
-      if (!error.message.includes('already in progress') && 
+      // Show market-aware error messages
+      if (respectMarketHours && !MarketHoursService.shouldMakeApiCall()) {
+        toast({
+          title: "Market Closed",
+          description: MarketHoursService.getMarketStatusMessage(),
+          variant: "default",
+        });
+      } else if (!error.message.includes('already in progress') && 
           !error.message.includes('circuit breaker') &&
           !error.message.includes('rate limit')) {
         toast({
@@ -109,7 +138,7 @@ export const useRealTimeData = (options: UseRealTimeDataOptions): UseRealTimeDat
         setIsLoading(false);
       }
     }
-  }, [symbol, symbols, onDataUpdate, handleError, clearError, toast, refreshInterval, canRetry]);
+  }, [symbol, symbols, onDataUpdate, handleError, clearError, toast, refreshInterval, canRetry, respectMarketHours]);
 
   const refresh = useCallback(async () => {
     await fetchData(true);
@@ -150,10 +179,16 @@ export const useRealTimeData = (options: UseRealTimeDataOptions): UseRealTimeDat
     fetchData(false);
   }, [fetchData]);
 
-  // Auto-refresh management
+  // Auto-refresh management with market hours awareness
   useEffect(() => {
     if (enableAutoRefresh && (symbol || symbols?.length)) {
-      startAutoRefresh();
+      // Only start auto-refresh if market hours allow it or if we're not respecting market hours
+      if (!respectMarketHours || MarketHoursService.shouldMakeApiCall()) {
+        startAutoRefresh();
+      } else {
+        console.log('Auto-refresh disabled - market is closed');
+        stopAutoRefresh();
+      }
     }
 
     return () => {
@@ -161,7 +196,7 @@ export const useRealTimeData = (options: UseRealTimeDataOptions): UseRealTimeDat
         clearInterval(intervalRef.current);
       }
     };
-  }, [enableAutoRefresh, startAutoRefresh, symbol, symbols]);
+  }, [enableAutoRefresh, startAutoRefresh, stopAutoRefresh, symbol, symbols, respectMarketHours, marketStatus]);
 
   // Cleanup on unmount
   useEffect(() => {
@@ -196,6 +231,7 @@ export const useRealTimeData = (options: UseRealTimeDataOptions): UseRealTimeDat
     startAutoRefresh,
     stopAutoRefresh,
     isAutoRefreshActive,
-    retryConnection
+    retryConnection,
+    marketStatus
   };
 };

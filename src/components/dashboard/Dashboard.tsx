@@ -6,6 +6,7 @@ import { useReportManager } from '@/hooks/useReportManager';
 import { RealTimeDataProvider } from '@/contexts/RealTimeDataContext';
 import { ErrorBoundary } from '@/components/error/ErrorBoundary';
 import { RealTimeErrorBoundary } from '@/components/error/RealTimeErrorBoundary';
+import { MarketStatus } from '@/components/ui/market-status';
 import Sidebar from './Sidebar';
 import DashboardContent from './DashboardContent';
 
@@ -47,7 +48,6 @@ const Dashboard: React.FC = () => {
       showDetails={process.env.NODE_ENV === 'development'}
       onError={(error, errorInfo) => {
         console.error('Dashboard error:', error, errorInfo);
-        // In production, send to error monitoring service
       }}
     >
       <RealTimeErrorBoundary>
@@ -63,6 +63,11 @@ const Dashboard: React.FC = () => {
             </ErrorBoundary>
             
             <main className="flex-1 overflow-auto">
+              {/* Market Status Header */}
+              <div className="bg-slate-800 border-b border-slate-700 px-6 py-3">
+                <MarketStatus showMessage={true} />
+              </div>
+              
               <div className="p-6">
                 <ErrorBoundary level="feature">
                   <DashboardContent

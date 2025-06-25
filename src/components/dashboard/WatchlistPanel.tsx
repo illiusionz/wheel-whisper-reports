@@ -1,10 +1,13 @@
+
 import React, { useState } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
-import { Plus, X, Search, TrendingUp, TrendingDown } from 'lucide-react';
+import { Plus, X, Search, TrendingUp, TrendingDown, Clock } from 'lucide-react';
 import { ErrorBoundary } from '@/components/error/ErrorBoundary';
+import { MarketStatus } from '@/components/ui/market-status';
+import { MarketHoursService } from '@/services/market/MarketHoursService';
 
 interface Stock {
   symbol: string;
@@ -43,20 +46,36 @@ const WatchlistPanel: React.FC<WatchlistPanelProps> = ({
     stock.name.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
+  const shouldMakeApiCall = MarketHoursService.shouldMakeApiCall();
+
   return (
     <ErrorBoundary level="feature">
       <div className="space-y-6">
         <Card className="bg-slate-800 border-slate-700">
           <CardHeader>
-            <CardTitle className="text-white flex items-center">
-              <TrendingUp className="mr-2 h-5 w-5 text-green-400" />
-              Stock Watchlist
-            </CardTitle>
-            <CardDescription className="text-slate-400">
-              Manage your tracked U.S. stock tickers for MCP reports
-            </CardDescription>
+            <div className="flex items-center justify-between">
+              <div>
+                <CardTitle className="text-white flex items-center">
+                  <TrendingUp className="mr-2 h-5 w-5 text-green-400" />
+                  Stock Watchlist
+                </CardTitle>
+                <CardDescription className="text-slate-400">
+                  Manage your tracked U.S. stock tickers for MCP reports
+                </CardDescription>
+              </div>
+              <MarketStatus />
+            </div>
           </CardHeader>
           <CardContent>
+            {!shouldMakeApiCall && (
+              <div className="mb-4 p-3 bg-amber-900/20 border border-amber-700 rounded-lg">
+                <div className="flex items-center text-amber-200 text-sm">
+                  <Clock className="h-4 w-4 mr-2" />
+                  {MarketHoursService.getMarketStatusMessage()}
+                </div>
+              </div>
+            )}
+
             <form onSubmit={handleAddStock} className="flex gap-2 mb-4">
               <Input
                 value={newSymbol}
@@ -97,6 +116,11 @@ const WatchlistPanel: React.FC<WatchlistPanelProps> = ({
                         <Badge variant="outline" className="text-xs border-slate-600 text-slate-400">
                           Options
                         </Badge>
+                        {!shouldMakeApiCall && (
+                          <Badge variant="outline" className="text-xs border-amber-600 text-amber-400">
+                            Market Closed
+                          </Badge>
+                        )}
                       </div>
                       <p className="text-sm text-slate-400 truncate">{stock.name}</p>
                     </div>
