@@ -1,5 +1,5 @@
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -14,13 +14,42 @@ const StockProviderSelector: React.FC = () => {
   const [apiKey, setApiKey] = useState('');
   const { toast } = useToast();
 
+  // Load saved configuration on component mount
+  useEffect(() => {
+    const savedConfig = localStorage.getItem('stock-provider-config');
+    if (savedConfig) {
+      try {
+        const config = JSON.parse(savedConfig);
+        setProvider(config.provider);
+        setApiKey(config.apiKey || '');
+        
+        // Apply the saved configuration
+        setStockServiceConfig({
+          provider: config.provider,
+          apiKey: config.apiKey || undefined,
+          fallbackProvider: 'mock'
+        });
+      } catch (error) {
+        console.error('Error loading saved stock provider config:', error);
+      }
+    }
+  }, []);
+
   const handleSetProvider = () => {
     try {
-      setStockServiceConfig({
+      const config = {
         provider,
         apiKey: apiKey || undefined,
-        fallbackProvider: 'mock'
-      });
+        fallbackProvider: 'mock' as const
+      };
+
+      setStockServiceConfig(config);
+
+      // Save configuration to localStorage
+      localStorage.setItem('stock-provider-config', JSON.stringify({
+        provider,
+        apiKey
+      }));
 
       const service = getStockService();
       
@@ -180,7 +209,6 @@ const StockProviderSelector: React.FC = () => {
         </CardContent>
       </Card>
 
-      {/* Current Provider Info */}
       <Card className="bg-slate-800 border-slate-700">
         <CardContent className="pt-6">
           <div className="text-xs text-slate-400 space-y-1">
