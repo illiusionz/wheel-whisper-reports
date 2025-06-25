@@ -1,224 +1,352 @@
 
-import "https://deno.land/x/xhr@0.1.0/mod.ts";
-import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
+import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
-};
-
-interface ModelResponse {
-  content: string;
-  model: string;
-  confidence: number;
-  cost: number;
 }
-
-const callClaude = async (prompt: string, systemPrompt: string): Promise<ModelResponse> => {
-  const anthropicApiKey = Deno.env.get('ANTHROPIC_API_KEY');
-  if (!anthropicApiKey) {
-    throw new Error('Claude API key not configured');
-  }
-
-  const response = await fetch('https://api.anthropic.com/v1/messages', {
-    method: 'POST',
-    headers: {
-      'Authorization': `Bearer ${anthropicApiKey}`,
-      'Content-Type': 'application/json',
-      'anthropic-version': '2023-06-01',
-    },
-    body: JSON.stringify({
-      model: 'claude-3-5-sonnet-20241022',
-      max_tokens: 200,
-      system: systemPrompt,
-      messages: [{ role: 'user', content: prompt }],
-      temperature: 0.3,
-    }),
-  });
-
-  if (!response.ok) {
-    const errorData = await response.text();
-    throw new Error(`Claude API error: ${response.status} - ${errorData}`);
-  }
-
-  const data = await response.json();
-  return {
-    content: data.content[0].text,
-    model: 'claude',
-    confidence: 0.9,
-    cost: 0.015
-  };
-};
-
-const callOpenAI = async (prompt: string, systemPrompt: string): Promise<ModelResponse> => {
-  const openAIApiKey = Deno.env.get('OPENAI_API_KEY');
-  if (!openAIApiKey) {
-    throw new Error('OpenAI API key not configured');
-  }
-
-  const response = await fetch('https://api.openai.com/v1/chat/completions', {
-    method: 'POST',
-    headers: {
-      'Authorization': `Bearer ${openAIApiKey}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      model: 'gpt-4.1-2025-04-14',
-      messages: [
-        { role: 'system', content: systemPrompt },
-        { role: 'user', content: prompt }
-      ],
-      max_tokens: 150,
-      temperature: 0.3,
-    }),
-  });
-
-  if (!response.ok) {
-    const errorData = await response.text();
-    throw new Error(`OpenAI API error: ${response.status} - ${errorData}`);
-  }
-
-  const data = await response.json();
-  return {
-    content: data.choices[0].message.content,
-    model: 'openai',
-    confidence: 0.8,
-    cost: 0.01
-  };
-};
-
-const callPerplexity = async (prompt: string, systemPrompt: string): Promise<ModelResponse> => {
-  const perplexityApiKey = Deno.env.get('PERPLEXITY_API_KEY');
-  if (!perplexityApiKey) {
-    throw new Error('Perplexity API key not configured');
-  }
-
-  const response = await fetch('https://api.perplexity.ai/chat/completions', {
-    method: 'POST',
-    headers: {
-      'Authorization': `Bearer ${perplexityApiKey}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      model: 'llama-3.1-sonar-small-128k-online',
-      messages: [
-        { role: 'system', content: systemPrompt },
-        { role: 'user', content: prompt }
-      ],
-      max_tokens: 200,
-      temperature: 0.2,
-      return_related_questions: false,
-      search_recency_filter: 'day'
-    }),
-  });
-
-  if (!response.ok) {
-    const errorData = await response.text();
-    throw new Error(`Perplexity API error: ${response.status} - ${errorData}`);
-  }
-
-  const data = await response.json();
-  return {
-    content: data.choices[0].message.content,
-    model: 'perplexity',
-    confidence: 0.85,
-    cost: 0.02
-  };
-};
-
-const modelCallers = {
-  claude: callClaude,
-  openai: callOpenAI,
-  perplexity: callPerplexity
-};
 
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
-    return new Response(null, { headers: corsHeaders });
+    return new Response('ok', { headers: corsHeaders })
   }
 
   try {
-    const { analysisType, symbol, data, preferredModel, fallbackOrder, requiresRealTime } = await req.json();
+    const { analysisType, symbol, data, requiresRealTime, forceModel, maxTokens = 2000 } = await req.json()
     
-    let systemPrompt = '';
-    let userPrompt = '';
-
-    // Build prompts based on analysis type
-    switch (analysisType) {
-      case 'technical':
-        systemPrompt = `You are an expert technical analyst specializing in wheel strategies. 
-        Provide concise, actionable insights for options trading. Focus on entry points, strike selection, and risk assessment.
-        Keep responses under 150 words and be specific about actionable recommendations.`;
-        userPrompt = `Analyze ${symbol} technical data for wheel strategy: ${JSON.stringify(data)}`;
-        break;
-        
-      case 'options':
-        systemPrompt = `You are an options strategy expert. Analyze for wheel strategy optimization, focusing on IV rank, strike selection, and timing.
-        Provide specific recommendations for strike prices, expiration dates, and entry/exit criteria. Keep under 150 words.`;
-        userPrompt = `Analyze ${symbol} options data for wheel strategy: ${JSON.stringify(data)}`;
-        break;
-        
-      case 'risk':
-        systemPrompt = `You are a risk management expert. Assess risks for wheel strategies, focusing on assignment probability and risk mitigation.
-        Quantify risks where possible and provide specific mitigation strategies. Keep under 150 words.`;
-        userPrompt = `Assess risks for ${symbol} wheel strategy: ${JSON.stringify(data)}`;
-        break;
-
-      case 'news':
-      case 'sentiment':
-        systemPrompt = `You are a market sentiment analyst. Analyze current news and market sentiment for trading decisions.
-        Focus on how recent events might impact options trading and wheel strategies. Be concise and actionable.`;
-        userPrompt = `Analyze current market sentiment and news for ${symbol}: ${JSON.stringify(data)}`;
-        break;
-        
-      default:
-        systemPrompt = `You are a comprehensive trading analyst. Provide strategic insights for options wheel strategies.
-        Be specific, actionable, and concise. Focus on practical trading recommendations.`;
-        userPrompt = `Analyze ${symbol}: ${JSON.stringify(data)}`;
-    }
-
-    let result: ModelResponse;
-    const attemptOrder = fallbackOrder || ['claude', 'openai', 'perplexity'];
-    let lastError: Error | null = null;
-
-    // Try preferred model first, then fallbacks
-    for (const modelName of attemptOrder) {
-      try {
-        console.log(`Attempting to call ${modelName} for ${analysisType} analysis`);
-        result = await modelCallers[modelName as keyof typeof modelCallers](userPrompt, systemPrompt);
-        console.log(`Successfully got response from ${modelName}`);
-        break;
-      } catch (error) {
-        console.warn(`${modelName} failed:`, error);
-        lastError = error as Error;
-        
-        // If this was the last model in the list, throw the error
-        if (modelName === attemptOrder[attemptOrder.length - 1]) {
-          throw new Error(`All AI models failed. Last error: ${lastError?.message}`);
-        }
-        
-        continue; // Try next model
+    console.log(`Hybrid AI Analysis Request: ${analysisType} for ${symbol}`)
+    
+    // Determine the best model for the analysis type
+    let selectedModel = forceModel || 'claude'
+    
+    if (!forceModel) {
+      switch (analysisType) {
+        case 'news':
+        case 'sentiment':
+          selectedModel = 'perplexity'
+          break
+        case 'technical':
+        case 'options':
+        case 'risk':
+          selectedModel = 'claude'
+          break
+        default:
+          selectedModel = 'claude'
       }
     }
 
-    return new Response(JSON.stringify({
-      content: result!.content,
-      model: result!.model,
-      confidence: result!.confidence,
+    console.log(`Using model: ${selectedModel} for ${analysisType} analysis`)
+
+    // Build context-aware prompt
+    const contextPrompt = buildContextPrompt(analysisType, symbol, data)
+    
+    let analysis = ''
+    let confidence = 0.7
+    
+    if (selectedModel === 'perplexity') {
+      const perplexityKey = Deno.env.get('PERPLEXITY_API_KEY')
+      if (!perplexityKey) {
+        throw new Error('Perplexity API key not configured')
+      }
+      
+      const result = await callPerplexityAPI(perplexityKey, contextPrompt, maxTokens)
+      analysis = result.content
+      confidence = result.confidence
+    } else if (selectedModel === 'claude') {
+      const anthropicKey = Deno.env.get('ANTHROPIC_API_KEY')
+      if (!anthropicKey) {
+        throw new Error('Anthropic API key not configured')
+      }
+      
+      const result = await callClaudeAPI(anthropicKey, contextPrompt, maxTokens)
+      analysis = result.content
+      confidence = result.confidence
+    } else if (selectedModel === 'openai') {
+      const openaiKey = Deno.env.get('OPENAI_API_KEY')
+      if (!openaiKey) {
+        throw new Error('OpenAI API key not configured')
+      }
+      
+      const result = await callOpenAIAPI(openaiKey, contextPrompt, maxTokens)
+      analysis = result.content
+      confidence = result.confidence
+    }
+
+    // Ensure we have a complete response
+    if (!analysis || analysis.trim().length === 0) {
+      throw new Error('Empty response from AI model')
+    }
+
+    const response = {
+      content: analysis,
+      model: selectedModel,
+      confidence: confidence,
       timestamp: new Date().toISOString(),
-      cost: result!.cost
-    }), {
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-    });
+      metadata: {
+        analysisType,
+        symbol,
+        tokenCount: analysis.length,
+        modelUsed: selectedModel
+      }
+    }
+
+    console.log(`Analysis completed for ${symbol}: ${analysis.length} characters`)
+
+    return new Response(
+      JSON.stringify(response),
+      { 
+        headers: { 
+          ...corsHeaders, 
+          'Content-Type': 'application/json' 
+        } 
+      }
+    )
 
   } catch (error) {
-    console.error('Hybrid AI Analysis error:', error);
-    return new Response(JSON.stringify({ 
-      error: error.message,
-      timestamp: new Date().toISOString()
-    }), {
-      status: 500,
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-    });
+    console.error('Hybrid AI Analysis Error:', error)
+    return new Response(
+      JSON.stringify({ 
+        error: error.message,
+        details: 'Failed to generate AI analysis'
+      }),
+      { 
+        status: 500,
+        headers: { 
+          ...corsHeaders, 
+          'Content-Type': 'application/json' 
+        } 
+      }
+    )
   }
-});
+})
+
+function buildContextPrompt(analysisType: string, symbol: string, data: any): string {
+  const baseContext = `You are an expert financial analyst providing detailed analysis for ${symbol}.`
+  
+  switch (analysisType) {
+    case 'technical':
+      return `${baseContext}
+      
+Current Stock Data: ${JSON.stringify(data, null, 2)}
+
+Provide a comprehensive technical analysis including:
+### Technical Analysis for ${symbol}
+
+**Current Price Action:**
+- Price: $${data.price}
+- Change: ${data.change} (${data.changePercent?.toFixed(2)}%)
+
+**Support Levels:**
+[Analyze support levels based on current price]
+
+**Resistance Levels:** 
+[Analyze resistance levels]
+
+**Volume Analysis:**
+[Analyze trading volume patterns]
+
+**Strike Selection:**
+[Provide specific strike recommendations]
+
+**Risk Assessment:**
+[Detailed risk analysis]
+
+Please provide a complete, detailed analysis with specific price targets and actionable insights.`
+
+    case 'sentiment':
+      return `${baseContext}
+      
+Current Stock Data: ${JSON.stringify(data, null, 2)}
+
+Provide real-time market sentiment analysis for ${symbol}:
+
+### Market Sentiment Analysis for ${symbol}
+
+**Key Points:**
+
+**Price Movement:**
+[Analyze recent price action and sentiment]
+
+**Volume:**
+[Analyze trading volume and market interest]
+
+**Market Factors:**
+[Discuss relevant market factors affecting sentiment]
+
+**News Impact:**
+[Analyze any recent news or events]
+
+**Sentiment Indicators:**
+[Provide sentiment metrics and indicators]
+
+Provide a comprehensive sentiment analysis with specific insights about market mood and trader behavior.`
+
+    case 'options':
+      return `${baseContext}
+      
+Stock Data: ${JSON.stringify(data, null, 2)}
+
+Provide detailed options strategy analysis:
+
+### Options Strategy Analysis for ${symbol}
+
+**Current Options Environment:**
+[Analyze current options activity]
+
+**Strategy Recommendations:**
+[Provide specific options strategies]
+
+**Strike Selection:**
+[Recommend specific strikes with rationale]
+
+**Risk Management:**
+[Detail risk management approaches]
+
+**Expected Outcomes:**
+[Provide probability-based outcomes]
+
+Give complete options analysis with specific strike recommendations and risk assessments.`
+
+    case 'risk':
+      return `${baseContext}
+      
+Stock Data: ${JSON.stringify(data, null, 2)}
+
+Provide comprehensive risk assessment:
+
+### Risk Assessment for ${symbol}
+
+**Volatility Analysis:**
+[Analyze current and historical volatility]
+
+**Downside Risks:**
+[Identify key downside risks]
+
+**Upside Potential:**
+[Assess upside scenarios]
+
+**Risk Mitigation:**
+[Provide risk mitigation strategies]
+
+**Position Sizing:**
+[Recommend appropriate position sizing]
+
+Provide detailed risk analysis with specific recommendations for risk management.`
+
+    default:
+      return `${baseContext}
+      
+Analyze ${symbol} with current data: ${JSON.stringify(data, null, 2)}
+      
+Provide comprehensive analysis relevant to ${analysisType} with specific insights and recommendations.`
+  }
+}
+
+async function callClaudeAPI(apiKey: string, prompt: string, maxTokens: number) {
+  const response = await fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${apiKey}`,
+      'Content-Type': 'application/json',
+      'anthropic-version': '2023-06-01'
+    },
+    body: JSON.stringify({
+      model: 'claude-3-sonnet-20240229',
+      max_tokens: maxTokens,
+      temperature: 0.3,
+      messages: [
+        {
+          role: 'user',
+          content: prompt
+        }
+      ]
+    })
+  })
+
+  if (!response.ok) {
+    throw new Error(`Claude API error: ${response.status}`)
+  }
+
+  const data = await response.json()
+  return {
+    content: data.content[0].text || '',
+    confidence: 0.85
+  }
+}
+
+async function callPerplexityAPI(apiKey: string, prompt: string, maxTokens: number) {
+  const response = await fetch('https://api.perplexity.ai/chat/completions', {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${apiKey}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      model: 'llama-3.1-sonar-large-128k-online',
+      messages: [
+        {
+          role: 'system',
+          content: 'You are a financial analyst providing detailed, comprehensive analysis. Always provide complete responses with specific insights and actionable recommendations.'
+        },
+        {
+          role: 'user',
+          content: prompt
+        }
+      ],
+      temperature: 0.3,
+      top_p: 0.9,
+      max_tokens: maxTokens,
+      return_images: false,
+      return_related_questions: false,
+      search_recency_filter: 'day',
+      frequency_penalty: 0.1,
+      presence_penalty: 0.1
+    }),
+  })
+
+  if (!response.ok) {
+    throw new Error(`Perplexity API error: ${response.status}`)
+  }
+
+  const data = await response.json()
+  return {
+    content: data.choices[0].message.content || '',
+    confidence: 0.80
+  }
+}
+
+async function callOpenAIAPI(apiKey: string, prompt: string, maxTokens: number) {
+  const response = await fetch('https://api.openai.com/v1/chat/completions', {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${apiKey}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      model: 'gpt-4',
+      messages: [
+        {
+          role: 'system',
+          content: 'You are a financial analyst providing detailed, comprehensive analysis. Always provide complete responses with specific insights and actionable recommendations.'
+        },
+        {
+          role: 'user',
+          content: prompt
+        }
+      ],
+      temperature: 0.3,
+      max_tokens: maxTokens,
+    }),
+  })
+
+  if (!response.ok) {
+    throw new Error(`OpenAI API error: ${response.status}`)
+  }
+
+  const data = await response.json()
+  return {
+    content: data.choices[0].message.content || '',
+    confidence: 0.82
+  }
+}
