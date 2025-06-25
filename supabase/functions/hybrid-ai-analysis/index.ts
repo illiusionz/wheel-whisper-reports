@@ -66,6 +66,7 @@ function validateHybridAIRequest(body: any) {
 serve(async (req) => {
   console.log('=== HYBRID AI ANALYSIS REQUEST START ===')
   console.log('Request method:', req.method)
+  console.log('Request headers:', Object.fromEntries(req.headers.entries()))
 
   // Handle CORS preflight requests
   if (req.method === 'OPTIONS') {
@@ -98,6 +99,9 @@ serve(async (req) => {
 
     // Get API key for selected model
     const { key: apiKey, source: keySource } = getAPIKey(selectedModel)
+    if (!apiKey) {
+      throw new Error(`${selectedModel.toUpperCase()} API key not configured in Supabase secrets`)
+    }
     console.log(`✅ Using ${selectedModel} API key from ${keySource}`)
 
     // Build context-aware prompt
