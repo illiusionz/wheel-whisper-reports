@@ -1,9 +1,9 @@
-
 import React, { useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { ScrollArea } from '@/components/ui/scroll-area';
 import { Brain, Loader2, Zap, Clock, Sparkles, Settings, ChevronDown, RefreshCw } from 'lucide-react';
 import { useHybridAI } from '@/hooks/useHybridAI';
 
@@ -129,11 +129,11 @@ const HybridAIInsightCard: React.FC<HybridAIInsightCardProps> = ({
   const modelInfo = analysis?.model ? modelIcons[analysis.model as keyof typeof modelIcons] : null;
 
   return (
-    <Card className="group relative overflow-hidden bg-gradient-to-br from-slate-900/50 via-slate-800/50 to-slate-900/50 border-slate-700/50 backdrop-blur-sm hover:border-purple-500/30 transition-all duration-300 hover:shadow-lg hover:shadow-purple-500/5">
+    <Card className="group relative overflow-hidden bg-gradient-to-br from-slate-900/50 via-slate-800/50 to-slate-900/50 border-slate-700/50 backdrop-blur-sm hover:border-purple-500/30 transition-all duration-300 hover:shadow-lg hover:shadow-purple-500/5 h-[600px] flex flex-col">
       {/* Gradient overlay for visual depth */}
       <div className="absolute inset-0 bg-gradient-to-br from-purple-500/5 via-transparent to-cyan-500/5 opacity-0 group-hover:opacity-100 transition-opacity duration-500" />
       
-      <CardHeader className="relative pb-3 space-y-3">
+      <CardHeader className="relative pb-3 space-y-3 flex-shrink-0">
         <div className="flex items-start justify-between">
           <div className="flex items-center gap-3">
             <div className="relative">
@@ -211,7 +211,7 @@ const HybridAIInsightCard: React.FC<HybridAIInsightCardProps> = ({
         )}
       </CardHeader>
       
-      <CardContent className="relative pt-0">
+      <CardContent className="relative pt-0 flex-1 overflow-hidden">
         {!hasAnalyzed ? (
           <div className="text-center py-8 space-y-4">
             <div className="mx-auto w-16 h-16 rounded-full bg-gradient-to-br from-purple-500/20 to-cyan-500/20 flex items-center justify-center border border-purple-500/20">
@@ -247,49 +247,51 @@ const HybridAIInsightCard: React.FC<HybridAIInsightCardProps> = ({
             </Button>
           </div>
         ) : (
-          <div className="space-y-4">
-            <div className="bg-gradient-to-br from-slate-800/80 to-slate-900/80 rounded-xl p-6 border border-slate-600/30 backdrop-blur-sm">
-              <div className="space-y-4">
-                {formatAnalysisContent(analysis.content).map((section, index) => (
-                  <div key={index}>
-                    {section.type === 'header' && (
-                      <div className="flex items-center gap-3 mb-4 pb-3 border-b border-slate-600/30">
-                        <div className="w-2 h-2 bg-gradient-to-r from-purple-400 to-cyan-400 rounded-full"></div>
-                        <h3 className="text-slate-100 font-bold text-base tracking-tight">
-                          {section.content}
-                        </h3>
-                      </div>
-                    )}
-                    
-                    {section.type === 'subheader' && (
-                      <div className="flex items-center gap-3 mb-3 mt-6 p-3 bg-gradient-to-r from-cyan-500/10 to-purple-500/10 rounded-lg border border-cyan-500/20">
-                        <div className="w-3 h-3 bg-gradient-to-r from-cyan-400 to-purple-400 rounded-full flex-shrink-0"></div>
-                        <h4 className="text-slate-100 font-semibold text-sm tracking-wide uppercase letter-spacing-wider">
-                          {section.content}
-                        </h4>
-                      </div>
-                    )}
-                    
-                    {section.type === 'bullet' && (
-                      <div className="flex items-start gap-3 mb-3 ml-4 p-2 hover:bg-slate-800/30 rounded-md transition-colors">
-                        <div className="w-1.5 h-1.5 bg-slate-400 rounded-full mt-2 flex-shrink-0"></div>
-                        <div className="text-slate-300 text-sm leading-relaxed">
+          <div className="space-y-4 h-full flex flex-col">
+            <ScrollArea className="flex-1 pr-4">
+              <div className="bg-gradient-to-br from-slate-800/80 to-slate-900/80 rounded-xl p-6 border border-slate-600/30 backdrop-blur-sm">
+                <div className="space-y-4">
+                  {formatAnalysisContent(analysis.content).map((section, index) => (
+                    <div key={index}>
+                      {section.type === 'header' && (
+                        <div className="flex items-center gap-3 mb-4 pb-3 border-b border-slate-600/30">
+                          <div className="w-2 h-2 bg-gradient-to-r from-purple-400 to-cyan-400 rounded-full"></div>
+                          <h3 className="text-slate-100 font-bold text-base tracking-tight">
+                            {section.content}
+                          </h3>
+                        </div>
+                      )}
+                      
+                      {section.type === 'subheader' && (
+                        <div className="flex items-center gap-3 mb-3 mt-6 p-3 bg-gradient-to-r from-cyan-500/10 to-purple-500/10 rounded-lg border border-cyan-500/20">
+                          <div className="w-3 h-3 bg-gradient-to-r from-cyan-400 to-purple-400 rounded-full flex-shrink-0"></div>
+                          <h4 className="text-slate-100 font-semibold text-sm tracking-wide uppercase letter-spacing-wider">
+                            {section.content}
+                          </h4>
+                        </div>
+                      )}
+                      
+                      {section.type === 'bullet' && (
+                        <div className="flex items-start gap-3 mb-3 ml-4 p-2 hover:bg-slate-800/30 rounded-md transition-colors">
+                          <div className="w-1.5 h-1.5 bg-slate-400 rounded-full mt-2 flex-shrink-0"></div>
+                          <div className="text-slate-300 text-sm leading-relaxed">
+                            {highlightNumbers(section.content)}
+                          </div>
+                        </div>
+                      )}
+                      
+                      {section.type === 'text' && (
+                        <div className="text-slate-300 text-sm leading-relaxed mb-3 pl-2">
                           {highlightNumbers(section.content)}
                         </div>
-                      </div>
-                    )}
-                    
-                    {section.type === 'text' && (
-                      <div className="text-slate-300 text-sm leading-relaxed mb-3 pl-2">
-                        {highlightNumbers(section.content)}
-                      </div>
-                    )}
-                  </div>
-                ))}
+                      )}
+                    </div>
+                  ))}
+                </div>
               </div>
-            </div>
+            </ScrollArea>
             
-            <div className="flex items-center justify-between pt-2 border-t border-slate-700/50">
+            <div className="flex items-center justify-between pt-2 border-t border-slate-700/50 flex-shrink-0">
               <div className="flex items-center gap-4">
                 <div className="flex items-center gap-1.5 text-xs text-slate-400">
                   <Clock className="h-3 w-3" />
