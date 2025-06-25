@@ -1,4 +1,5 @@
-import React, { useState } from 'react';
+
+import React, { useState, useCallback, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -36,18 +37,30 @@ const HybridAIInsightCard: React.FC<HybridAIInsightCardProps> = ({
   const [selectedModel, setSelectedModel] = useState<'auto' | 'claude' | 'openai' | 'perplexity'>('auto');
   const [showModelSelector, setShowModelSelector] = useState(false);
 
-  const handleAnalyze = async () => {
+  const handleAnalyze = useCallback(async () => {
     if (isLoading) return;
     
-    const forceModel = selectedModel === 'auto' ? undefined : selectedModel;
-    const result = await getHybridAnalysis(analysisType, symbol, data, requiresRealTime, forceModel);
-    if (result) {
-      setAnalysis(result);
-      setHasAnalyzed(true);
+    try {
+      const forceModel = selectedModel === 'auto' ? undefined : selectedModel;
+      const result = await getHybridAnalysis(analysisType, symbol, data, requiresRealTime, forceModel);
+      if (result) {
+        setAnalysis(result);
+        setHasAnalyzed(true);
+      }
+    } catch (err) {
+      console.error('Analysis error:', err);
     }
-  };
+  }, [getHybridAnalysis, analysisType, symbol, data, requiresRealTime, selectedModel, isLoading]);
 
-  const formatAnalysisContent = (content: string) => {
+  // Reset analysis when symbol changes
+  useEffect(() => {
+    setAnalysis(null);
+    setHasAnalyzed(false);
+  }, [symbol]);
+
+  const formatAnalysisContent = useCallback((content: string) => {
+    if (!content) return [];
+    
     // Split content by headers and bullet points
     const lines = content.split('\n').filter(line => line.trim());
     const formatted = [];
@@ -84,9 +97,11 @@ const HybridAIInsightCard: React.FC<HybridAIInsightCardProps> = ({
     }
     
     return formatted;
-  };
+  }, []);
 
-  const highlightNumbers = (text: string) => {
+  const highlightNumbers = useCallback((text: string) => {
+    if (!text) return text;
+    
     // First handle inline bold text (**text**) by converting to styled spans
     let processedText = text.replace(/\*\*([^*]+)\*\*/g, '<strong class="text-emerald-300 font-semibold bg-emerald-500/10 px-2 py-0.5 rounded text-sm border border-emerald-500/20">$1</strong>');
     
@@ -120,7 +135,7 @@ const HybridAIInsightCard: React.FC<HybridAIInsightCardProps> = ({
       }
       return <span key={index}>{part}</span>;
     });
-  };
+  }, []);
 
   if (error) {
     return null; // Gracefully hide on error
@@ -253,7 +268,7 @@ const HybridAIInsightCard: React.FC<HybridAIInsightCardProps> = ({
             <ScrollArea className="flex-1 min-h-0">
               <div className="bg-gradient-to-br from-slate-800/80 to-slate-900/80 rounded-xl p-6 border border-slate-600/30 backdrop-blur-sm">
                 <div className="space-y-4">
-                  {formatAnalysisContent(analysis.content).map((section, index) => (
+                  {analysis?.content && formatAnalysisContent(analysis.content).map((section, index) => (
                     <div key={index}>
                       {section.type === 'header' && (
                         <div className="flex items-center gap-3 mb-4 pb-3 border-b border-slate-600/30">
@@ -300,13 +315,13 @@ const HybridAIInsightCard: React.FC<HybridAIInsightCardProps> = ({
                 <div className="flex items-center gap-1.5 text-xs text-slate-400">
                   <Clock className="h-3 w-3" />
                   <span className="font-medium">
-                    {new Date(analysis.timestamp).toLocaleTimeString()}
+                    {analysis?.timestamp ? new Date(analysis.timestamp).toLocaleTimeString() : ''}
                   </span>
                 </div>
                 <div className="w-1 h-1 bg-slate-600 rounded-full" />
                 <Badge variant="outline" className="text-xs border-slate-600 bg-slate-800/50 text-slate-300 font-medium">
                   <div className="w-2 h-2 bg-green-400 rounded-full mr-1.5 animate-pulse"></div>
-                  {Math.round(analysis.confidence * 100)}% confidence
+                  {analysis?.confidence ? Math.round(analysis.confidence * 100) : 0}% confidence
                 </Badge>
               </div>
               
