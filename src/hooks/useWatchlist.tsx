@@ -1,8 +1,10 @@
+
 import { useState, useEffect } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
 import { useToast } from '@/hooks/use-toast';
 import { useRealTimeData } from '@/hooks/useRealTimeData';
+import { getStockService } from '@/services/stock';
 import { StockQuote } from '@/types/stock';
 
 interface Stock {
