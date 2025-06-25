@@ -51,7 +51,7 @@ export const useHybridAI = () => {
       // Check if content seems truncated
       if (result.content && result.content.length > 0) {
         const lastChar = result.content.trim().slice(-1);
-        const seemsTruncated = !['.", "!", "?", '.', ':', ';'].includes(lastChar) && 
+        const seemsTruncated = !['."', '"!', '"?', '.', ':', ';'].includes(lastChar) && 
                               !result.content.trim().endsWith('...') &&
                               result.content.length > 500;
         
