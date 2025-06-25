@@ -13,7 +13,7 @@ serve(async (req) => {
   }
 
   try {
-    const { analysisType, symbol, data, requiresRealTime, forceModel, maxTokens = 2000 } = await req.json()
+    const { analysisType, symbol, data, requiresRealTime, forceModel, maxTokens = 1500, temperature = 0.3 } = await req.json()
     
     console.log(`Hybrid AI Analysis Request: ${analysisType} for ${symbol}`)
     
@@ -47,8 +47,10 @@ serve(async (req) => {
     if (selectedModel === 'perplexity') {
       const perplexityKey = Deno.env.get('PERPLEXITY_API_KEY')
       if (!perplexityKey) {
+        console.error('Perplexity API key not found in environment')
         throw new Error('Perplexity API key not configured')
       }
+      console.log('Perplexity API key found, making request...')
       
       const result = await callPerplexityAPI(perplexityKey, contextPrompt, maxTokens)
       analysis = result.content
@@ -56,8 +58,10 @@ serve(async (req) => {
     } else if (selectedModel === 'claude') {
       const anthropicKey = Deno.env.get('ANTHROPIC_API_KEY')
       if (!anthropicKey) {
+        console.error('Anthropic API key not found in environment')
         throw new Error('Anthropic API key not configured')
       }
+      console.log('Anthropic API key found, making request...')
       
       const result = await callClaudeAPI(anthropicKey, contextPrompt, maxTokens)
       analysis = result.content
@@ -65,8 +69,10 @@ serve(async (req) => {
     } else if (selectedModel === 'openai') {
       const openaiKey = Deno.env.get('OPENAI_API_KEY')
       if (!openaiKey) {
+        console.error('OpenAI API key not found in environment')
         throw new Error('OpenAI API key not configured')
       }
+      console.log('OpenAI API key found, making request...')
       
       const result = await callOpenAIAPI(openaiKey, contextPrompt, maxTokens)
       analysis = result.content
@@ -75,6 +81,7 @@ serve(async (req) => {
 
     // Ensure we have a complete response
     if (!analysis || analysis.trim().length === 0) {
+      console.error('Empty analysis received from AI model')
       throw new Error('Empty response from AI model')
     }
 
@@ -108,7 +115,8 @@ serve(async (req) => {
     return new Response(
       JSON.stringify({ 
         error: error.message,
-        details: 'Failed to generate AI analysis'
+        details: 'Failed to generate AI analysis',
+        timestamp: new Date().toISOString()
       }),
       { 
         status: 500,
@@ -131,28 +139,24 @@ function buildContextPrompt(analysisType: string, symbol: string, data: any): st
 Current Stock Data: ${JSON.stringify(data, null, 2)}
 
 Provide a comprehensive technical analysis including:
+
 ### Technical Analysis for ${symbol}
 
 **Current Price Action:**
 - Price: $${data.price}
 - Change: ${data.change} (${data.changePercent?.toFixed(2)}%)
 
-**Support Levels:**
-[Analyze support levels based on current price]
+**Key Technical Levels:**
+- Support and resistance levels based on current price action
+- Volume analysis and trading patterns
+- Momentum indicators and trend direction
 
-**Resistance Levels:** 
-[Analyze resistance levels]
+**Trading Recommendations:**
+- Entry and exit points
+- Risk management suggestions
+- Price targets and stop losses
 
-**Volume Analysis:**
-[Analyze trading volume patterns]
-
-**Strike Selection:**
-[Provide specific strike recommendations]
-
-**Risk Assessment:**
-[Detailed risk analysis]
-
-Please provide a complete, detailed analysis with specific price targets and actionable insights.`
+Provide specific, actionable technical analysis with clear price targets and risk assessments.`
 
     case 'sentiment':
       return `${baseContext}
@@ -163,24 +167,22 @@ Provide real-time market sentiment analysis for ${symbol}:
 
 ### Market Sentiment Analysis for ${symbol}
 
-**Key Points:**
+**Current Market Sentiment:**
+- Overall market mood and trader sentiment
+- Recent news impact and market reactions
+- Social media sentiment and retail investor behavior
 
-**Price Movement:**
-[Analyze recent price action and sentiment]
-
-**Volume:**
-[Analyze trading volume and market interest]
-
-**Market Factors:**
-[Discuss relevant market factors affecting sentiment]
-
-**News Impact:**
-[Analyze any recent news or events]
+**Key Sentiment Drivers:**
+- Recent earnings or company announcements
+- Sector trends and peer performance
+- Macroeconomic factors affecting sentiment
 
 **Sentiment Indicators:**
-[Provide sentiment metrics and indicators]
+- Options flow and unusual activity
+- Institutional vs retail sentiment
+- Fear & greed indicators
 
-Provide a comprehensive sentiment analysis with specific insights about market mood and trader behavior.`
+Provide comprehensive sentiment analysis with specific insights about current market psychology.`
 
     case 'options':
       return `${baseContext}
@@ -192,21 +194,21 @@ Provide detailed options strategy analysis:
 ### Options Strategy Analysis for ${symbol}
 
 **Current Options Environment:**
-[Analyze current options activity]
+- Implied volatility levels and trends
+- Options flow and unusual activity
+- Put/call ratios and sentiment
 
 **Strategy Recommendations:**
-[Provide specific options strategies]
-
-**Strike Selection:**
-[Recommend specific strikes with rationale]
+- Specific options strategies for current market conditions
+- Strike selection and expiration timing
+- Risk/reward profiles for each strategy
 
 **Risk Management:**
-[Detail risk management approaches]
+- Position sizing recommendations
+- Exit strategies and profit targets
+- Hedging considerations
 
-**Expected Outcomes:**
-[Provide probability-based outcomes]
-
-Give complete options analysis with specific strike recommendations and risk assessments.`
+Give specific options strategies with strike recommendations and risk assessments.`
 
     case 'risk':
       return `${baseContext}
@@ -218,32 +220,34 @@ Provide comprehensive risk assessment:
 ### Risk Assessment for ${symbol}
 
 **Volatility Analysis:**
-[Analyze current and historical volatility]
+- Historical and implied volatility trends
+- Beta and correlation analysis
+- Risk-adjusted return metrics
 
-**Downside Risks:**
-[Identify key downside risks]
+**Key Risk Factors:**
+- Company-specific risks
+- Sector and market risks
+- Macroeconomic risk factors
 
-**Upside Potential:**
-[Assess upside scenarios]
+**Risk Management:**
+- Position sizing recommendations
+- Diversification strategies
+- Hedging approaches
 
-**Risk Mitigation:**
-[Provide risk mitigation strategies]
-
-**Position Sizing:**
-[Recommend appropriate position sizing]
-
-Provide detailed risk analysis with specific recommendations for risk management.`
+Provide detailed risk analysis with specific mitigation strategies.`
 
     default:
       return `${baseContext}
       
 Analyze ${symbol} with current data: ${JSON.stringify(data, null, 2)}
       
-Provide comprehensive analysis relevant to ${analysisType} with specific insights and recommendations.`
+Provide comprehensive financial analysis with specific insights and actionable recommendations.`
   }
 }
 
 async function callClaudeAPI(apiKey: string, prompt: string, maxTokens: number) {
+  console.log('Making Claude API request...')
+  
   const response = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
     headers: {
@@ -265,10 +269,14 @@ async function callClaudeAPI(apiKey: string, prompt: string, maxTokens: number) 
   })
 
   if (!response.ok) {
-    throw new Error(`Claude API error: ${response.status}`)
+    const errorText = await response.text()
+    console.error(`Claude API error ${response.status}:`, errorText)
+    throw new Error(`Claude API error: ${response.status} - ${errorText}`)
   }
 
   const data = await response.json()
+  console.log('Claude API response received successfully')
+  
   return {
     content: data.content[0].text || '',
     confidence: 0.85
@@ -276,6 +284,8 @@ async function callClaudeAPI(apiKey: string, prompt: string, maxTokens: number) 
 }
 
 async function callPerplexityAPI(apiKey: string, prompt: string, maxTokens: number) {
+  console.log('Making Perplexity API request...')
+  
   const response = await fetch('https://api.perplexity.ai/chat/completions', {
     method: 'POST',
     headers: {
@@ -306,10 +316,14 @@ async function callPerplexityAPI(apiKey: string, prompt: string, maxTokens: numb
   })
 
   if (!response.ok) {
-    throw new Error(`Perplexity API error: ${response.status}`)
+    const errorText = await response.text()
+    console.error(`Perplexity API error ${response.status}:`, errorText)
+    throw new Error(`Perplexity API error: ${response.status} - ${errorText}`)
   }
 
   const data = await response.json()
+  console.log('Perplexity API response received successfully')
+  
   return {
     content: data.choices[0].message.content || '',
     confidence: 0.80
@@ -317,6 +331,8 @@ async function callPerplexityAPI(apiKey: string, prompt: string, maxTokens: numb
 }
 
 async function callOpenAIAPI(apiKey: string, prompt: string, maxTokens: number) {
+  console.log('Making OpenAI API request...')
+  
   const response = await fetch('https://api.openai.com/v1/chat/completions', {
     method: 'POST',
     headers: {
@@ -341,10 +357,14 @@ async function callOpenAIAPI(apiKey: string, prompt: string, maxTokens: number) 
   })
 
   if (!response.ok) {
-    throw new Error(`OpenAI API error: ${response.status}`)
+    const errorText = await response.text()
+    console.error(`OpenAI API error ${response.status}:`, errorText)
+    throw new Error(`OpenAI API error: ${response.status} - ${errorText}`)
   }
 
   const data = await response.json()
+  console.log('OpenAI API response received successfully')
+  
   return {
     content: data.choices[0].message.content || '',
     confidence: 0.82
