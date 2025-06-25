@@ -1,3 +1,4 @@
+
 import { StockProvider, StockQuote, StockServiceConfig } from '@/types/stock';
 import { FinnhubProvider } from './providers/FinnhubProvider';
 import { AlphaVantageProvider } from './providers/AlphaVantageProvider';
@@ -94,9 +95,9 @@ export class StockService {
     throw new Error('Options chain data requires Polygon provider');
   }
 
-  async getHistoricalData(symbol: string, timespan: 'day' | 'week' | 'month' = 'day', from: string, to: string) {
+  async getHistoricalData(symbol: string, timespan: 'day' | 'week' | 'month' = 'day', from?: string, to?: string) {
     if (this.provider instanceof PolygonProvider) {
-      return await this.provider.getHistoricalData(symbol, 1, timespan, from, to);
+      return await this.provider.getHistoricalData(symbol, timespan, from, to);
     }
     throw new Error('Historical data requires Polygon provider');
   }

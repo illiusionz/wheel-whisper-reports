@@ -158,3 +158,6 @@ export interface FundamentalData {
   operatingMargin: number;
   profitMargin: number;
 }
+
+// Re-export MarketStatus for convenience
+export { MarketStatus };
