@@ -371,6 +371,7 @@ export class PolygonProvider implements StockProvider {
       )
     ]);
 
+    // optionsChain is now directly OptionsContract[], not an object with results
     const putOptions = optionsChain.filter(opt => 
       opt.contract_type === 'put' && 
       opt.strike_price && 
