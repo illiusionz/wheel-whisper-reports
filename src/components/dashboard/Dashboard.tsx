@@ -1,46 +1,27 @@
 
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '@/hooks/useAuth';
+import { useWatchlist } from '@/hooks/useWatchlist';
 import Sidebar from './Sidebar';
 import WatchlistPanel from './WatchlistPanel';
 import MCPReport from './MCPReport';
 import SchedulePanel from './SchedulePanel';
 import SettingsPanel from './SettingsPanel';
 
-interface Stock {
-  symbol: string;
-  name: string;
-  price: number;
-  change: number;
-  changePercent: number;
-}
-
 const Dashboard: React.FC = () => {
   const { user, signOut } = useAuth();
+  const { watchlist, loading: watchlistLoading, addStock, removeStock } = useWatchlist();
   const [activeTab, setActiveTab] = useState('dashboard');
   const [selectedStock, setSelectedStock] = useState<string | null>(null);
-  const [watchlist, setWatchlist] = useState<Stock[]>([
-    { symbol: 'AAPL', name: 'Apple Inc.', price: 145.67, change: 2.34, changePercent: 1.63 },
-    { symbol: 'TSLA', name: 'Tesla, Inc.', price: 242.18, change: -5.67, changePercent: -2.29 },
-    { symbol: 'SOXL', name: 'Direxion Daily Semiconductor Bull 3X', price: 28.45, change: 1.12, changePercent: 4.10 },
-  ]);
   const [reports, setReports] = useState<{[key: string]: any}>({});
   const [isRefreshing, setIsRefreshing] = useState(false);
 
   const handleAddStock = (symbol: string) => {
-    // Simulate adding a new stock with mock data - will be replaced with real Supabase integration
-    const newStock: Stock = {
-      symbol,
-      name: `${symbol} Corporation`,
-      price: Math.random() * 200 + 50,
-      change: (Math.random() - 0.5) * 10,
-      changePercent: (Math.random() - 0.5) * 5
-    };
-    setWatchlist(prev => [...prev, newStock]);
+    addStock(symbol);
   };
 
   const handleRemoveStock = (symbol: string) => {
-    setWatchlist(prev => prev.filter(stock => stock.symbol !== symbol));
+    removeStock(symbol);
     // Remove associated report
     setReports(prev => {
       const newReports = { ...prev };
@@ -164,12 +145,18 @@ const Dashboard: React.FC = () => {
               </div>
             </div>
 
-            <WatchlistPanel
-              watchlist={watchlist.slice(0, 3)}
-              onAddStock={handleAddStock}
-              onRemoveStock={handleRemoveStock}
-              onSelectStock={handleSelectStock}
-            />
+            {watchlistLoading ? (
+              <div className="bg-slate-800 border border-slate-700 rounded-lg p-8 text-center">
+                <div className="text-white text-lg">Loading your watchlist...</div>
+              </div>
+            ) : (
+              <WatchlistPanel
+                watchlist={watchlist.slice(0, 3)}
+                onAddStock={handleAddStock}
+                onRemoveStock={handleRemoveStock}
+                onSelectStock={handleSelectStock}
+              />
+            )}
           </div>
         );
     }
