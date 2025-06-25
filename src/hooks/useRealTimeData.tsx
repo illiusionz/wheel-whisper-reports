@@ -3,6 +3,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { getStockService } from '@/services/stock';
 import { StockQuote } from '@/types/stock';
 import { useToast } from '@/hooks/use-toast';
+import { useErrorHandler } from '@/hooks/useErrorHandler';
 
 interface UseRealTimeDataOptions {
   symbol?: string;
@@ -22,6 +23,7 @@ interface UseRealTimeDataReturn {
   startAutoRefresh: () => void;
   stopAutoRefresh: () => void;
   isAutoRefreshActive: boolean;
+  retryConnection: () => void;
 }
 
 export const useRealTimeData = (options: UseRealTimeDataOptions): UseRealTimeDataReturn => {
@@ -36,7 +38,6 @@ export const useRealTimeData = (options: UseRealTimeDataOptions): UseRealTimeDat
 
   const [data, setData] = useState<StockQuote | StockQuote[] | null>(null);
   const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState<Error | null>(null);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
   const [isAutoRefreshActive, setIsAutoRefreshActive] = useState(enableAutoRefresh);
 
@@ -45,20 +46,26 @@ export const useRealTimeData = (options: UseRealTimeDataOptions): UseRealTimeDat
   const lastFetchRef = useRef<number>(0);
   const { toast } = useToast();
 
+  const { error, handleError, clearError, retry, canRetry } = useErrorHandler({
+    maxRetries: 3,
+    onError,
+    showToast: false // We'll handle toasts manually for better UX
+  });
+
   const fetchData = useCallback(async (forceRefresh = false) => {
     if (!symbol && !symbols?.length) return;
     if (!mountedRef.current) return;
 
     // Prevent rapid successive calls
     const now = Date.now();
-    const minInterval = Math.min(refreshInterval * 0.1, 5000); // At least 5s between manual calls
+    const minInterval = Math.min(refreshInterval * 0.1, 5000);
     if (!forceRefresh && now - lastFetchRef.current < minInterval) {
       console.log('Skipping fetch due to rate limiting');
       return;
     }
 
     setIsLoading(true);
-    setError(null);
+    clearError();
     lastFetchRef.current = now;
 
     try {
@@ -85,14 +92,15 @@ export const useRealTimeData = (options: UseRealTimeDataOptions): UseRealTimeDat
       if (!mountedRef.current) return;
       
       const error = err instanceof Error ? err : new Error('Failed to fetch stock data');
-      setError(error);
-      onError?.(error);
+      handleError(error, 'real-time data fetch');
       
-      // Only show toast for non-rate-limit errors
-      if (!error.message.includes('already in progress') && !error.message.includes('circuit breaker')) {
+      // Only show toast for critical errors
+      if (!error.message.includes('already in progress') && 
+          !error.message.includes('circuit breaker') &&
+          !error.message.includes('rate limit')) {
         toast({
           title: "Data Update Failed",
-          description: `Failed to update ${symbol || 'stock data'}. Will retry automatically.`,
+          description: `Failed to update ${symbol || 'stock data'}. ${canRetry ? 'Will retry automatically.' : 'Please try again later.'}`,
           variant: "destructive",
         });
       }
@@ -101,11 +109,17 @@ export const useRealTimeData = (options: UseRealTimeDataOptions): UseRealTimeDat
         setIsLoading(false);
       }
     }
-  }, [symbol, symbols, onDataUpdate, onError, toast, refreshInterval]);
+  }, [symbol, symbols, onDataUpdate, handleError, clearError, toast, refreshInterval, canRetry]);
 
   const refresh = useCallback(async () => {
     await fetchData(true);
   }, [fetchData]);
+
+  const retryConnection = useCallback(async () => {
+    if (canRetry) {
+      await retry(() => fetchData(true));
+    }
+  }, [retry, fetchData, canRetry]);
 
   const startAutoRefresh = useCallback(() => {
     if (intervalRef.current) {
@@ -181,6 +195,7 @@ export const useRealTimeData = (options: UseRealTimeDataOptions): UseRealTimeDat
     refresh,
     startAutoRefresh,
     stopAutoRefresh,
-    isAutoRefreshActive
+    isAutoRefreshActive,
+    retryConnection
   };
 };

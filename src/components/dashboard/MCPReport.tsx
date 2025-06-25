@@ -6,6 +6,8 @@ import { BarChart3, RefreshCw, Pause, Play } from 'lucide-react';
 import { useRealTimeData } from '@/hooks/useRealTimeData';
 import { getStockService } from '@/services/stock';
 import { StockQuote } from '@/types/stock';
+import { ErrorBoundary } from '@/components/error/ErrorBoundary';
+import { RealTimeErrorBoundary } from '@/components/error/RealTimeErrorBoundary';
 import MacroCalendar from './mcp-sections/MacroCalendar';
 import StockOverview from './mcp-sections/StockOverview';
 import TechnicalSnapshot from './mcp-sections/TechnicalSnapshot';
@@ -53,7 +55,8 @@ const MCPReport: React.FC<MCPReportProps> = ({ symbol, report, onRefresh, isRefr
     isAutoRefreshActive,
     startAutoRefresh,
     stopAutoRefresh,
-    refresh: refreshRealTimeData
+    refresh: refreshRealTimeData,
+    retryConnection
   } = useRealTimeData({
     symbol: symbol !== 'Select a stock' ? symbol : undefined,
     refreshInterval: 60000, // 1 minute for detailed reports
@@ -126,66 +129,84 @@ const MCPReport: React.FC<MCPReportProps> = ({ symbol, report, onRefresh, isRefr
   return (
     <div className="space-y-6">
       {/* Header with Real-time Controls */}
-      <Card className="bg-slate-800 border-slate-700">
-        <CardHeader>
-          <div className="flex items-center justify-between">
-            <div>
-              <CardTitle className="text-white text-2xl">
-                MCP Wheel Strategy Report for {symbol}
-              </CardTitle>
-              <div className="flex items-center gap-4 mt-1">
-                <p className="text-slate-400">
-                  Last updated: {lastUpdated ? lastUpdated.toLocaleTimeString() : 'Never'}
-                </p>
-                {isAutoRefreshActive && (
-                  <div className="flex items-center gap-1 text-green-400 text-sm">
-                    <div className="w-2 h-2 bg-green-400 rounded-full animate-pulse"></div>
-                    Live
-                  </div>
-                )}
+      <RealTimeErrorBoundary onRetry={retryConnection} symbol={symbol}>
+        <Card className="bg-slate-800 border-slate-700">
+          <CardHeader>
+            <div className="flex items-center justify-between">
+              <div>
+                <CardTitle className="text-white text-2xl">
+                  MCP Wheel Strategy Report for {symbol}
+                </CardTitle>
+                <div className="flex items-center gap-4 mt-1">
+                  <p className="text-slate-400">
+                    Last updated: {lastUpdated ? lastUpdated.toLocaleTimeString() : 'Never'}
+                  </p>
+                  {isAutoRefreshActive && (
+                    <div className="flex items-center gap-1 text-green-400 text-sm">
+                      <div className="w-2 h-2 bg-green-400 rounded-full animate-pulse"></div>
+                      Live
+                    </div>
+                  )}
+                </div>
+              </div>
+              <div className="flex gap-2">
+                <Button 
+                  onClick={toggleAutoRefresh}
+                  variant="outline"
+                  size="sm"
+                  className="border-slate-600 text-slate-300 hover:bg-slate-700"
+                >
+                  {isAutoRefreshActive ? (
+                    <>
+                      <Pause className="h-4 w-4 mr-2" />
+                      Pause Auto-Refresh
+                    </>
+                  ) : (
+                    <>
+                      <Play className="h-4 w-4 mr-2" />
+                      Start Auto-Refresh
+                    </>
+                  )}
+                </Button>
+                <Button 
+                  onClick={handleManualRefresh}
+                  disabled={isRefreshing || isRealTimeLoading}
+                  className="bg-green-600 hover:bg-green-700"
+                >
+                  <RefreshCw className={`h-4 w-4 mr-2 ${(isRefreshing || isRealTimeLoading) ? 'animate-spin' : ''}`} />
+                  {isRefreshing || isRealTimeLoading ? 'Refreshing...' : 'Refresh'}
+                </Button>
               </div>
             </div>
-            <div className="flex gap-2">
-              <Button 
-                onClick={toggleAutoRefresh}
-                variant="outline"
-                size="sm"
-                className="border-slate-600 text-slate-300 hover:bg-slate-700"
-              >
-                {isAutoRefreshActive ? (
-                  <>
-                    <Pause className="h-4 w-4 mr-2" />
-                    Pause Auto-Refresh
-                  </>
-                ) : (
-                  <>
-                    <Play className="h-4 w-4 mr-2" />
-                    Start Auto-Refresh
-                  </>
-                )}
-              </Button>
-              <Button 
-                onClick={handleManualRefresh}
-                disabled={isRefreshing || isRealTimeLoading}
-                className="bg-green-600 hover:bg-green-700"
-              >
-                <RefreshCw className={`h-4 w-4 mr-2 ${(isRefreshing || isRealTimeLoading) ? 'animate-spin' : ''}`} />
-                {isRefreshing || isRealTimeLoading ? 'Refreshing...' : 'Refresh'}
-              </Button>
-            </div>
-          </div>
-        </CardHeader>
-      </Card>
+          </CardHeader>
+        </Card>
+      </RealTimeErrorBoundary>
 
-      <MacroCalendar symbol={symbol} />
+      <ErrorBoundary level="component">
+        <MacroCalendar symbol={symbol} />
+      </ErrorBoundary>
 
       {currentData && (
         <>
-          <StockOverview symbol={symbol} stockData={currentData} />
-          <TechnicalSnapshot stockData={currentData} />
-          <ExpectedClosing stockData={currentData} />
-          <OptionsActivity stockData={currentData} />
-          <WheelStrategyLadder stockData={currentData} />
+          <ErrorBoundary level="component">
+            <StockOverview symbol={symbol} stockData={currentData} />
+          </ErrorBoundary>
+          
+          <ErrorBoundary level="component">
+            <TechnicalSnapshot stockData={currentData} />
+          </ErrorBoundary>
+          
+          <ErrorBoundary level="component">
+            <ExpectedClosing stockData={currentData} />
+          </ErrorBoundary>
+          
+          <ErrorBoundary level="component">
+            <OptionsActivity stockData={currentData} />
+          </ErrorBoundary>
+          
+          <ErrorBoundary level="component">
+            <WheelStrategyLadder stockData={currentData} />
+          </ErrorBoundary>
         </>
       )}
     </div>

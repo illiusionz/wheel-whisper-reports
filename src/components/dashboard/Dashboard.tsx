@@ -4,6 +4,8 @@ import { useAuth } from '@/hooks/useAuth';
 import { useWatchlist } from '@/hooks/useWatchlist';
 import { useReportManager } from '@/hooks/useReportManager';
 import { RealTimeDataProvider } from '@/contexts/RealTimeDataContext';
+import { ErrorBoundary } from '@/components/error/ErrorBoundary';
+import { RealTimeErrorBoundary } from '@/components/error/RealTimeErrorBoundary';
 import Sidebar from './Sidebar';
 import DashboardContent from './DashboardContent';
 
@@ -40,35 +42,50 @@ const Dashboard: React.FC = () => {
   };
 
   return (
-    <RealTimeDataProvider>
-      <div className="flex h-screen bg-slate-900">
-        <Sidebar
-          activeTab={activeTab}
-          onTabChange={setActiveTab}
-          userEmail={user?.email || ''}
-          onLogout={signOut}
-        />
-        
-        <main className="flex-1 overflow-auto">
-          <div className="p-6">
-            <DashboardContent
-              activeTab={activeTab}
-              watchlist={watchlist}
-              reports={reports}
-              selectedStock={selectedStock}
-              lastUpdated={lastUpdated}
-              watchlistLoading={watchlistLoading}
-              isRefreshing={isRefreshing}
-              onAddStock={handleAddStock}
-              onRemoveStock={handleRemoveStock}
-              onSelectStock={handleSelectStock}
-              onRefreshReport={handleRefreshReportWrapper}
-              onRefreshAll={handleRefreshAllWrapper}
-            />
+    <ErrorBoundary 
+      level="page" 
+      showDetails={process.env.NODE_ENV === 'development'}
+      onError={(error, errorInfo) => {
+        console.error('Dashboard error:', error, errorInfo);
+        // In production, send to error monitoring service
+      }}
+    >
+      <RealTimeErrorBoundary>
+        <RealTimeDataProvider>
+          <div className="flex h-screen bg-slate-900">
+            <ErrorBoundary level="component">
+              <Sidebar
+                activeTab={activeTab}
+                onTabChange={setActiveTab}
+                userEmail={user?.email || ''}
+                onLogout={signOut}
+              />
+            </ErrorBoundary>
+            
+            <main className="flex-1 overflow-auto">
+              <div className="p-6">
+                <ErrorBoundary level="feature">
+                  <DashboardContent
+                    activeTab={activeTab}
+                    watchlist={watchlist}
+                    reports={reports}
+                    selectedStock={selectedStock}
+                    lastUpdated={lastUpdated}
+                    watchlistLoading={watchlistLoading}
+                    isRefreshing={isRefreshing}
+                    onAddStock={handleAddStock}
+                    onRemoveStock={handleRemoveStock}
+                    onSelectStock={handleSelectStock}
+                    onRefreshReport={handleRefreshReportWrapper}
+                    onRefreshAll={handleRefreshAllWrapper}
+                  />
+                </ErrorBoundary>
+              </div>
+            </main>
           </div>
-        </main>
-      </div>
-    </RealTimeDataProvider>
+        </RealTimeDataProvider>
+      </RealTimeErrorBoundary>
+    </ErrorBoundary>
   );
 };
 
