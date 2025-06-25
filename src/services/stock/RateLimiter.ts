@@ -1,3 +1,4 @@
+import { CircuitBreaker } from '@/utils/CircuitBreaker';
 
 interface RequestCache {
   [key: string]: {
@@ -17,13 +18,22 @@ export class RateLimiter {
   private requestQueue: Array<{ timestamp: number; resolve: () => void }> = [];
   private cache: RequestCache = {};
   private config: RateLimitConfig;
-  private circuitBreakerFailures = 0;
-  private circuitBreakerLastFailure = 0;
-  private readonly CIRCUIT_BREAKER_THRESHOLD = 5;
-  private readonly CIRCUIT_BREAKER_TIMEOUT = 60000; // 1 minute
+  private circuitBreaker: CircuitBreaker;
 
-  constructor(config: RateLimitConfig) {
+  constructor(config: RateLimitConfig, serviceName: string = 'stock-service') {
     this.config = config;
+    this.circuitBreaker = new CircuitBreaker({
+      failureThreshold: 3,
+      resetTimeout: 30000, // 30 seconds
+      monitoringPeriod: 60000, // 1 minute
+      name: serviceName
+    });
+
+    // Log circuit breaker state changes
+    this.circuitBreaker.onStateChange((state, error) => {
+      console.log(`${serviceName} circuit breaker state changed to: ${state}`, error?.message);
+    });
+
     this.cleanup();
   }
 
@@ -39,37 +49,16 @@ export class RateLimiter {
     }, 300000);
   }
 
-  private isCircuitBreakerOpen(): boolean {
-    const now = Date.now();
-    if (this.circuitBreakerFailures >= this.CIRCUIT_BREAKER_THRESHOLD) {
-      if (now - this.circuitBreakerLastFailure < this.CIRCUIT_BREAKER_TIMEOUT) {
-        console.warn('Circuit breaker is open, blocking requests');
-        return true;
-      } else {
-        // Reset circuit breaker after timeout
-        this.circuitBreakerFailures = 0;
-      }
-    }
-    return false;
-  }
-
-  private recordFailure() {
-    this.circuitBreakerFailures++;
-    this.circuitBreakerLastFailure = Date.now();
-  }
-
-  private recordSuccess() {
-    this.circuitBreakerFailures = 0;
-  }
-
   async executeRequest<T>(
     key: string,
     requestFn: () => Promise<T>,
     forceRefresh = false
   ): Promise<T> {
-    // Check circuit breaker
-    if (this.isCircuitBreakerOpen()) {
-      throw new Error('Service temporarily unavailable due to circuit breaker');
+    // Check circuit breaker first
+    if (!this.circuitBreaker.isAvailable()) {
+      const error = new Error(`Service temporarily unavailable due to circuit breaker`);
+      console.warn(`Request blocked by circuit breaker: ${key}`);
+      throw error;
     }
 
     // Check cache first (unless force refresh)
@@ -93,8 +82,12 @@ export class RateLimiter {
     // Rate limiting
     await this.waitForRateLimit();
 
-    // Create and cache the promise
-    const promise = this.executeWithRetry(requestFn);
+    // Execute request through circuit breaker
+    const promise = this.circuitBreaker.execute(async () => {
+      return await this.executeWithRetry(requestFn);
+    });
+
+    // Cache the promise
     this.cache[key] = {
       promise,
       timestamp: Date.now()
@@ -110,18 +103,15 @@ export class RateLimiter {
         data: result
       };
       
-      this.recordSuccess();
       return result;
     } catch (error) {
-      this.recordFailure();
-      
       // Remove failed request from cache
       delete this.cache[key];
       throw error;
     }
   }
 
-  private async executeWithRetry<T>(requestFn: () => Promise<T>, maxRetries = 3): Promise<T> {
+  private async executeWithRetry<T>(requestFn: () => Promise<T>, maxRetries = 2): Promise<T> {
     let lastError: Error | null = null;
     
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
@@ -132,7 +122,7 @@ export class RateLimiter {
         
         if (attempt === maxRetries) break;
         
-        // Exponential backoff: 1s, 2s, 4s
+        // Exponential backoff: 1s, 2s
         const delay = Math.pow(2, attempt - 1) * 1000;
         console.warn(`Request failed (attempt ${attempt}/${maxRetries}), retrying in ${delay}ms:`, error);
         await new Promise(resolve => setTimeout(resolve, delay));
@@ -174,8 +164,22 @@ export class RateLimiter {
     return {
       cacheSize: Object.keys(this.cache).length,
       queueSize: this.requestQueue.length,
-      circuitBreakerFailures: this.circuitBreakerFailures,
-      isCircuitBreakerOpen: this.isCircuitBreakerOpen()
+      circuitBreakerStats: this.circuitBreaker.getStats(),
+      isServiceAvailable: this.circuitBreaker.isAvailable()
     };
+  }
+
+  // New method to get circuit breaker status
+  getCircuitBreakerStatus() {
+    return {
+      state: this.circuitBreaker.getState(),
+      isAvailable: this.circuitBreaker.isAvailable(),
+      stats: this.circuitBreaker.getStats()
+    };
+  }
+
+  // Method to manually reset circuit breaker
+  resetCircuitBreaker() {
+    this.circuitBreaker.forceReset();
   }
 }

@@ -36,7 +36,7 @@ export class StockServiceManager {
     this.stockService = new StockService(config);
     
     const rateConfig = PROVIDER_RATE_LIMITS[config.provider] || PROVIDER_RATE_LIMITS.mock;
-    this.rateLimiter = new RateLimiter(rateConfig);
+    this.rateLimiter = new RateLimiter(rateConfig, `stock-${config.provider}`);
   }
 
   async getQuote(symbol: string, forceRefresh = false): Promise<StockQuote> {
@@ -121,10 +121,19 @@ export class StockServiceManager {
     
     // Update rate limiter for new provider
     const rateConfig = PROVIDER_RATE_LIMITS[type] || PROVIDER_RATE_LIMITS.mock;
-    this.rateLimiter = new RateLimiter(rateConfig);
+    this.rateLimiter = new RateLimiter(rateConfig, `stock-${type}`);
   }
 
   getRateLimitStats() {
     return this.rateLimiter.getCacheStats();
+  }
+
+  // New methods for circuit breaker management
+  getCircuitBreakerStatus() {
+    return this.rateLimiter.getCircuitBreakerStatus();
+  }
+
+  resetCircuitBreaker() {
+    this.rateLimiter.resetCircuitBreaker();
   }
 }
