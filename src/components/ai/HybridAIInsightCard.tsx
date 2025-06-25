@@ -65,7 +65,7 @@ const HybridAIInsightCard: React.FC<HybridAIInsightCardProps> = ({
         continue;
       }
       
-      // Bold headers (**text**) - convert to subheaders
+      // Bold headers at start of line followed by colon (**text:**)
       if (line.match(/^\*\*[^*]+\*\*:?\s*$/)) {
         const headerText = line.replace(/\*\*/g, '').replace(/:$/, '').trim();
         formatted.push({ type: 'subheader', content: headerText });
@@ -88,7 +88,7 @@ const HybridAIInsightCard: React.FC<HybridAIInsightCardProps> = ({
 
   const highlightNumbers = (text: string) => {
     // First handle inline bold text (**text**) by converting to styled spans
-    let processedText = text.replace(/\*\*([^*]+)\*\*/g, '<strong class="text-slate-100 font-semibold bg-slate-700/30 px-2 py-0.5 rounded text-sm">$1</strong>');
+    let processedText = text.replace(/\*\*([^*]+)\*\*/g, '<strong class="text-emerald-300 font-semibold bg-emerald-500/10 px-2 py-0.5 rounded text-sm border border-emerald-500/20">$1</strong>');
     
     // Then handle numbers, percentages, and currencies
     return processedText.split(/(\$[\d,]+\.?\d*|[\d,]+\.?\d*%|[\d,]+\.?\d*|\b\d{4}\b|\[\d+\]|<strong[^>]*>.*?<\/strong>)/g).map((part, index) => {
@@ -129,7 +129,7 @@ const HybridAIInsightCard: React.FC<HybridAIInsightCardProps> = ({
   const modelInfo = analysis?.model ? modelIcons[analysis.model as keyof typeof modelIcons] : null;
 
   return (
-    <Card className="group relative overflow-hidden bg-gradient-to-br from-slate-900/50 via-slate-800/50 to-slate-900/50 border-slate-700/50 backdrop-blur-sm hover:border-purple-500/30 transition-all duration-300 hover:shadow-lg hover:shadow-purple-500/5 h-[600px] flex flex-col">
+    <Card className="group relative overflow-hidden bg-gradient-to-br from-slate-900/50 via-slate-800/50 to-slate-900/50 border-slate-700/50 backdrop-blur-sm hover:border-purple-500/30 transition-all duration-300 hover:shadow-lg hover:shadow-purple-500/5 h-[700px] flex flex-col">
       {/* Gradient overlay for visual depth */}
       <div className="absolute inset-0 bg-gradient-to-br from-purple-500/5 via-transparent to-cyan-500/5 opacity-0 group-hover:opacity-100 transition-opacity duration-500" />
       
@@ -211,44 +211,46 @@ const HybridAIInsightCard: React.FC<HybridAIInsightCardProps> = ({
         )}
       </CardHeader>
       
-      <CardContent className="relative pt-0 flex-1 overflow-hidden">
+      <CardContent className="relative pt-0 flex-1 flex flex-col min-h-0">
         {!hasAnalyzed ? (
-          <div className="text-center py-8 space-y-4">
-            <div className="mx-auto w-16 h-16 rounded-full bg-gradient-to-br from-purple-500/20 to-cyan-500/20 flex items-center justify-center border border-purple-500/20">
-              <Brain className="h-8 w-8 text-purple-400" />
+          <div className="flex-1 flex items-center justify-center">
+            <div className="text-center space-y-4">
+              <div className="mx-auto w-16 h-16 rounded-full bg-gradient-to-br from-purple-500/20 to-cyan-500/20 flex items-center justify-center border border-purple-500/20">
+                <Brain className="h-8 w-8 text-purple-400" />
+              </div>
+              
+              <div className="space-y-2">
+                <h3 className="text-sm font-medium text-slate-200">AI-Powered Analysis</h3>
+                <p className="text-xs text-slate-400 max-w-xs mx-auto leading-relaxed">
+                  {selectedModel === 'auto' 
+                    ? 'Smart routing will select the optimal AI model for best results' 
+                    : `Analysis will be performed using ${selectedModel.charAt(0).toUpperCase() + selectedModel.slice(1)}`
+                  }
+                </p>
+              </div>
+              
+              <Button 
+                onClick={handleAnalyze}
+                disabled={isLoading}
+                className="bg-gradient-to-r from-purple-600 to-cyan-600 hover:from-purple-500 hover:to-cyan-500 text-white border-0 shadow-lg hover:shadow-xl transition-all duration-300 transform hover:scale-105"
+              >
+                {isLoading ? (
+                  <>
+                    <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                    Analyzing...
+                  </>
+                ) : (
+                  <>
+                    <Sparkles className="h-4 w-4 mr-2" />
+                    Get Smart Analysis
+                  </>
+                )}
+              </Button>
             </div>
-            
-            <div className="space-y-2">
-              <h3 className="text-sm font-medium text-slate-200">AI-Powered Analysis</h3>
-              <p className="text-xs text-slate-400 max-w-xs mx-auto leading-relaxed">
-                {selectedModel === 'auto' 
-                  ? 'Smart routing will select the optimal AI model for best results' 
-                  : `Analysis will be performed using ${selectedModel.charAt(0).toUpperCase() + selectedModel.slice(1)}`
-                }
-              </p>
-            </div>
-            
-            <Button 
-              onClick={handleAnalyze}
-              disabled={isLoading}
-              className="bg-gradient-to-r from-purple-600 to-cyan-600 hover:from-purple-500 hover:to-cyan-500 text-white border-0 shadow-lg hover:shadow-xl transition-all duration-300 transform hover:scale-105"
-            >
-              {isLoading ? (
-                <>
-                  <Loader2 className="h-4 w-4 animate-spin mr-2" />
-                  Analyzing...
-                </>
-              ) : (
-                <>
-                  <Sparkles className="h-4 w-4 mr-2" />
-                  Get Smart Analysis
-                </>
-              )}
-            </Button>
           </div>
         ) : (
-          <div className="space-y-4 h-full flex flex-col">
-            <ScrollArea className="flex-1 pr-4">
+          <div className="flex-1 flex flex-col min-h-0 space-y-4">
+            <ScrollArea className="flex-1 min-h-0">
               <div className="bg-gradient-to-br from-slate-800/80 to-slate-900/80 rounded-xl p-6 border border-slate-600/30 backdrop-blur-sm">
                 <div className="space-y-4">
                   {formatAnalysisContent(analysis.content).map((section, index) => (
@@ -263,16 +265,18 @@ const HybridAIInsightCard: React.FC<HybridAIInsightCardProps> = ({
                       )}
                       
                       {section.type === 'subheader' && (
-                        <div className="flex items-center gap-3 mb-3 mt-6 p-3 bg-gradient-to-r from-cyan-500/10 to-purple-500/10 rounded-lg border border-cyan-500/20">
-                          <div className="w-3 h-3 bg-gradient-to-r from-cyan-400 to-purple-400 rounded-full flex-shrink-0"></div>
-                          <h4 className="text-slate-100 font-semibold text-sm tracking-wide uppercase letter-spacing-wider">
-                            {section.content}
-                          </h4>
+                        <div className="mb-3 mt-6 p-4 bg-gradient-to-r from-purple-500/10 via-cyan-500/10 to-purple-500/10 rounded-lg border border-purple-500/20 backdrop-blur-sm">
+                          <div className="flex items-center gap-3">
+                            <div className="w-3 h-3 bg-gradient-to-r from-purple-400 to-cyan-400 rounded-full flex-shrink-0"></div>
+                            <h4 className="text-purple-200 font-bold text-sm tracking-wide uppercase letter-spacing-wider">
+                              {section.content}
+                            </h4>
+                          </div>
                         </div>
                       )}
                       
                       {section.type === 'bullet' && (
-                        <div className="flex items-start gap-3 mb-3 ml-4 p-2 hover:bg-slate-800/30 rounded-md transition-colors">
+                        <div className="flex items-start gap-3 mb-3 ml-4 p-3 hover:bg-slate-800/30 rounded-md transition-colors">
                           <div className="w-1.5 h-1.5 bg-slate-400 rounded-full mt-2 flex-shrink-0"></div>
                           <div className="text-slate-300 text-sm leading-relaxed">
                             {highlightNumbers(section.content)}
