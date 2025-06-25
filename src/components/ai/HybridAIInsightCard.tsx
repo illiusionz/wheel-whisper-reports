@@ -55,10 +55,12 @@ const HybridAIInsightCard: React.FC<HybridAIInsightCardProps> = ({
       console.error('Analysis error:', err);
       const errorMessage = err?.message || 'Failed to get analysis';
       
-      if (errorMessage.includes('401') || errorMessage.includes('unauthorized')) {
-        setLocalError('API key not configured. Please add your AI API keys in Supabase secrets.');
+      if (errorMessage.includes('401') || errorMessage.includes('unauthorized') || errorMessage.includes('authentication failed')) {
+        setLocalError('API key not configured or invalid. Please add your AI API keys in Supabase Edge Function Secrets.');
       } else if (errorMessage.includes('400')) {
         setLocalError('Invalid request. Please check your API configuration.');
+      } else if (errorMessage.includes('ANTHROPIC_API_KEY')) {
+        setLocalError('Claude API key is invalid or expired. Please update your ANTHROPIC_API_KEY in Supabase Edge Function Secrets.');
       } else {
         setLocalError(errorMessage);
       }
@@ -245,10 +247,16 @@ const HybridAIInsightCard: React.FC<HybridAIInsightCardProps> = ({
               <div>
                 <h4 className="text-red-400 font-medium text-sm">Analysis Error</h4>
                 <p className="text-red-300 text-xs mt-1">{displayError}</p>
-                {displayError.includes('API key') && (
-                  <p className="text-red-300 text-xs mt-2">
-                    Configure your API keys in Supabase Edge Function Secrets for Claude, OpenAI, and Perplexity.
-                  </p>
+                {(displayError.includes('API key') || displayError.includes('ANTHROPIC_API_KEY')) && (
+                  <div className="mt-2 p-2 bg-red-500/5 rounded border border-red-500/20">
+                    <p className="text-red-300 text-xs font-medium">How to fix:</p>
+                    <p className="text-red-300 text-xs mt-1">
+                      1. Go to your Supabase project dashboard<br/>
+                      2. Navigate to Project Settings → Edge Functions → Secrets<br/>
+                      3. Add or update your ANTHROPIC_API_KEY with a valid Claude API key<br/>
+                      4. Get a Claude API key from: https://console.anthropic.com/
+                    </p>
+                  </div>
                 )}
               </div>
             </div>

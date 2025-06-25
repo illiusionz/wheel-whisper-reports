@@ -196,8 +196,9 @@ serve(async (req) => {
       return new Response(
         JSON.stringify({ 
           error: `${selectedModel.toUpperCase()} API key not configured`,
-          details: keyError.message,
-          model: selectedModel
+          details: `Please add your ${selectedModel.toUpperCase()} API key to Supabase Edge Function Secrets. Go to Project Settings > Edge Functions > Secrets and add ${keySource}.`,
+          model: selectedModel,
+          keyName: keySource
         }),
         {
           status: 500,
@@ -259,12 +260,20 @@ serve(async (req) => {
       console.error('Error name:', aiError.name)
       console.error('Error message:', aiError.message)
       console.error('Error stack:', aiError.stack)
+      
+      // Enhanced error message for Claude API key issues
+      let errorMessage = aiError.message;
+      if (selectedModel === 'claude' && aiError.message.includes('authentication failed')) {
+        errorMessage = 'Claude API key is invalid or expired. Please update your ANTHROPIC_API_KEY in Supabase Edge Function Secrets with a valid Anthropic API key.';
+      }
+      
       return new Response(
         JSON.stringify({ 
           error: `Failed to get analysis from ${selectedModel}`,
-          details: aiError.message,
+          details: errorMessage,
           model: selectedModel,
-          errorType: aiError.name
+          errorType: aiError.name,
+          suggestion: selectedModel === 'claude' ? 'Please verify your ANTHROPIC_API_KEY is correct and active' : 'Please check your API key configuration'
         }),
         {
           status: 500,
