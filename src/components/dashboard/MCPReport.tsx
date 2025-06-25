@@ -1,19 +1,14 @@
+
 import React, { useEffect, useState } from 'react';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
-import { BarChart3, RefreshCw, Pause, Play } from 'lucide-react';
+import { Card } from '@/components/ui/card';
 import { useRealTimeData } from '@/hooks/useRealTimeData';
 import { getStockService } from '@/services/stock';
 import { StockQuote } from '@/types/stock';
-import { ErrorBoundary } from '@/components/error/ErrorBoundary';
 import { RealTimeErrorBoundary } from '@/components/error/RealTimeErrorBoundary';
-import MacroCalendar from './mcp-sections/MacroCalendar';
-import StockOverview from './mcp-sections/StockOverview';
-import TechnicalSnapshot from './mcp-sections/TechnicalSnapshot';
-import ExpectedClosing from './mcp-sections/ExpectedClosing';
-import OptionsActivity from './mcp-sections/OptionsActivity';
-import WheelStrategyLadder from './mcp-sections/WheelStrategyLadder';
-import TradingChatPanel from '@/components/ai/TradingChatPanel';
+import MCPReportHeader from './mcp-report/MCPReportHeader';
+import MCPReportControls from './mcp-report/MCPReportControls';
+import MCPReportEmpty from './mcp-report/MCPReportEmpty';
+import MCPReportSections from './mcp-report/MCPReportSections';
 
 interface MCPReportProps {
   symbol: string;
@@ -99,28 +94,12 @@ const MCPReport: React.FC<MCPReportProps> = ({ symbol, report, onRefresh, isRefr
 
   if (!report && !stockData) {
     return (
-      <div className="space-y-6">
-        <Card className="bg-slate-800 border-slate-700">
-          <CardHeader>
-            <CardTitle className="text-white flex items-center justify-between">
-              <span>MCP Report for {symbol}</span>
-              <Button 
-                onClick={onRefresh}
-                disabled={isRefreshing || isRealTimeLoading}
-                className="bg-green-600 hover:bg-green-700"
-              >
-                <RefreshCw className={`h-4 w-4 mr-2 ${(isRefreshing || isRealTimeLoading) ? 'animate-spin' : ''}`} />
-                {isRefreshing || isRealTimeLoading ? 'Loading...' : 'Generate Report'}
-              </Button>
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="p-8 text-center">
-            <BarChart3 className="h-16 w-16 text-slate-600 mx-auto mb-4" />
-            <h3 className="text-lg font-semibold text-white mb-2">No Report Available</h3>
-            <p className="text-slate-400 mb-4">Generate your first MCP Wheel Strategy Report for {symbol}</p>
-          </CardContent>
-        </Card>
-      </div>
+      <MCPReportEmpty 
+        symbol={symbol}
+        isRefreshing={isRefreshing}
+        isRealTimeLoading={isRealTimeLoading}
+        onRefresh={onRefresh}
+      />
     );
   }
 
@@ -131,91 +110,25 @@ const MCPReport: React.FC<MCPReportProps> = ({ symbol, report, onRefresh, isRefr
       {/* Header with Real-time Controls */}
       <RealTimeErrorBoundary onRetry={retryConnection} symbol={symbol}>
         <Card className="bg-slate-800 border-slate-700">
-          <CardHeader>
-            <div className="flex items-center justify-between">
-              <div>
-                <CardTitle className="text-white text-2xl">
-                  MCP Wheel Strategy Report for {symbol}
-                </CardTitle>
-                <div className="flex items-center gap-4 mt-1">
-                  <p className="text-slate-400">
-                    Last updated: {lastUpdated ? lastUpdated.toLocaleTimeString() : 'Never'}
-                  </p>
-                  {isAutoRefreshActive && (
-                    <div className="flex items-center gap-1 text-green-400 text-sm">
-                      <div className="w-2 h-2 bg-green-400 rounded-full animate-pulse"></div>
-                      Live
-                    </div>
-                  )}
-                </div>
-              </div>
-              <div className="flex gap-2">
-                <Button 
-                  onClick={toggleAutoRefresh}
-                  variant="outline"
-                  size="sm"
-                  className="border-slate-600 text-slate-300 hover:bg-slate-700"
-                >
-                  {isAutoRefreshActive ? (
-                    <>
-                      <Pause className="h-4 w-4 mr-2" />
-                      Pause Auto-Refresh
-                    </>
-                  ) : (
-                    <>
-                      <Play className="h-4 w-4 mr-2" />
-                      Start Auto-Refresh
-                    </>
-                  )}
-                </Button>
-                <Button 
-                  onClick={handleManualRefresh}
-                  disabled={isRefreshing || isRealTimeLoading}
-                  className="bg-green-600 hover:bg-green-700"
-                >
-                  <RefreshCw className={`h-4 w-4 mr-2 ${(isRefreshing || isRealTimeLoading) ? 'animate-spin' : ''}`} />
-                  {isRefreshing || isRealTimeLoading ? 'Refreshing...' : 'Refresh'}
-                </Button>
-              </div>
-            </div>
-          </CardHeader>
+          <MCPReportHeader 
+            symbol={symbol}
+            lastUpdated={lastUpdated}
+            isAutoRefreshActive={isAutoRefreshActive}
+          />
+          <div className="px-6 pb-6">
+            <MCPReportControls
+              isAutoRefreshActive={isAutoRefreshActive}
+              isRefreshing={isRefreshing}
+              isRealTimeLoading={isRealTimeLoading}
+              onToggleAutoRefresh={toggleAutoRefresh}
+              onManualRefresh={handleManualRefresh}
+            />
+          </div>
         </Card>
       </RealTimeErrorBoundary>
 
-      <ErrorBoundary level="component">
-        <MacroCalendar symbol={symbol} />
-      </ErrorBoundary>
-
       {currentData && (
-        <>
-          <ErrorBoundary level="component">
-            <StockOverview symbol={symbol} stockData={currentData} />
-          </ErrorBoundary>
-          
-          <ErrorBoundary level="component">
-            <TechnicalSnapshot stockData={currentData} />
-          </ErrorBoundary>
-          
-          <ErrorBoundary level="component">
-            <ExpectedClosing stockData={currentData} />
-          </ErrorBoundary>
-          
-          <ErrorBoundary level="component">
-            <OptionsActivity stockData={currentData} />
-          </ErrorBoundary>
-          
-          <ErrorBoundary level="component">
-            <WheelStrategyLadder stockData={currentData} />
-          </ErrorBoundary>
-
-          {/* AI Trading Chat Panel */}
-          <ErrorBoundary level="component">
-            <TradingChatPanel 
-              symbol={symbol} 
-              context={`Current price: $${currentData.price}, Change: ${currentData.changePercent.toFixed(2)}%`}
-            />
-          </ErrorBoundary>
-        </>
+        <MCPReportSections symbol={symbol} stockData={currentData} />
       )}
     </div>
   );
