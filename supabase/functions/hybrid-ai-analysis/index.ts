@@ -1,6 +1,5 @@
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
-import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -13,7 +12,7 @@ serve(async (req) => {
   }
 
   try {
-    const { analysisType, symbol, data, requiresRealTime, forceModel, maxTokens = 1500, temperature = 0.3 } = await req.json()
+    const { analysisType, symbol, data, requiresRealTime, forceModel, maxTokens = 1000, temperature = 0.3 } = await req.json()
     
     console.log(`Hybrid AI Analysis Request: ${analysisType} for ${symbol}`)
     
@@ -47,7 +46,7 @@ serve(async (req) => {
     if (selectedModel === 'perplexity') {
       const perplexityKey = Deno.env.get('PERPLEXITY_API_KEY')
       if (!perplexityKey) {
-        console.error('Perplexity API key not found in environment')
+        console.error('Perplexity API key not found')
         throw new Error('Perplexity API key not configured')
       }
       console.log('Perplexity API key found, making request...')
@@ -55,26 +54,27 @@ serve(async (req) => {
       const result = await callPerplexityAPI(perplexityKey, contextPrompt, maxTokens)
       analysis = result.content
       confidence = result.confidence
-    } else if (selectedModel === 'claude') {
-      const anthropicKey = Deno.env.get('ANTHROPIC_API_KEY')
-      if (!anthropicKey) {
-        console.error('Anthropic API key not found in environment')
-        throw new Error('Anthropic API key not configured')
-      }
-      console.log('Anthropic API key found, making request...')
-      
-      const result = await callClaudeAPI(anthropicKey, contextPrompt, maxTokens)
-      analysis = result.content
-      confidence = result.confidence
     } else if (selectedModel === 'openai') {
       const openaiKey = Deno.env.get('OPENAI_API_KEY')
       if (!openaiKey) {
-        console.error('OpenAI API key not found in environment')
+        console.error('OpenAI API key not found')
         throw new Error('OpenAI API key not configured')
       }
       console.log('OpenAI API key found, making request...')
       
       const result = await callOpenAIAPI(openaiKey, contextPrompt, maxTokens)
+      analysis = result.content
+      confidence = result.confidence
+    } else {
+      // Default to Claude
+      const anthropicKey = Deno.env.get('ANTHROPIC_API_KEY')
+      if (!anthropicKey) {
+        console.error('Anthropic API key not found')
+        throw new Error('Anthropic API key not configured')
+      }
+      console.log('Anthropic API key found, making request...')
+      
+      const result = await callClaudeAPI(anthropicKey, contextPrompt, maxTokens)
       analysis = result.content
       confidence = result.confidence
     }
@@ -138,17 +138,17 @@ function buildContextPrompt(analysisType: string, symbol: string, data: any): st
       
 Current Stock Data: ${JSON.stringify(data, null, 2)}
 
-Provide a comprehensive technical analysis including:
+Provide comprehensive technical analysis for ${symbol}:
 
-### Technical Analysis for ${symbol}
+**Technical Analysis for ${symbol}**
 
 **Current Price Action:**
 - Price: $${data.price}
 - Change: ${data.change} (${data.changePercent?.toFixed(2)}%)
 
 **Key Technical Levels:**
-- Support and resistance levels based on current price action
-- Volume analysis and trading patterns
+- Support and resistance levels
+- Volume analysis and patterns
 - Momentum indicators and trend direction
 
 **Trading Recommendations:**
@@ -156,85 +156,85 @@ Provide a comprehensive technical analysis including:
 - Risk management suggestions
 - Price targets and stop losses
 
-Provide specific, actionable technical analysis with clear price targets and risk assessments.`
+Provide specific, actionable technical analysis with clear insights.`
 
     case 'sentiment':
       return `${baseContext}
       
 Current Stock Data: ${JSON.stringify(data, null, 2)}
 
-Provide real-time market sentiment analysis for ${symbol}:
+Provide market sentiment analysis for ${symbol}:
 
-### Market Sentiment Analysis for ${symbol}
+**Market Sentiment Analysis for ${symbol}**
 
 **Current Market Sentiment:**
 - Overall market mood and trader sentiment
-- Recent news impact and market reactions
-- Social media sentiment and retail investor behavior
+- Recent news impact and reactions
+- Social media sentiment and retail behavior
 
 **Key Sentiment Drivers:**
-- Recent earnings or company announcements
+- Recent earnings or announcements
 - Sector trends and peer performance
-- Macroeconomic factors affecting sentiment
+- Macroeconomic factors
 
 **Sentiment Indicators:**
 - Options flow and unusual activity
 - Institutional vs retail sentiment
 - Fear & greed indicators
 
-Provide comprehensive sentiment analysis with specific insights about current market psychology.`
+Provide comprehensive sentiment analysis with specific insights.`
 
     case 'options':
       return `${baseContext}
       
 Stock Data: ${JSON.stringify(data, null, 2)}
 
-Provide detailed options strategy analysis:
+Provide options strategy analysis:
 
-### Options Strategy Analysis for ${symbol}
+**Options Strategy Analysis for ${symbol}**
 
 **Current Options Environment:**
-- Implied volatility levels and trends
-- Options flow and unusual activity
-- Put/call ratios and sentiment
+- Implied volatility levels
+- Options flow analysis
+- Put/call ratios
 
 **Strategy Recommendations:**
-- Specific options strategies for current market conditions
-- Strike selection and expiration timing
-- Risk/reward profiles for each strategy
+- Specific options strategies
+- Strike selection and timing
+- Risk/reward profiles
 
 **Risk Management:**
 - Position sizing recommendations
-- Exit strategies and profit targets
+- Exit strategies
 - Hedging considerations
 
-Give specific options strategies with strike recommendations and risk assessments.`
+Give specific options strategies with actionable recommendations.`
 
     case 'risk':
       return `${baseContext}
       
 Stock Data: ${JSON.stringify(data, null, 2)}
 
-Provide comprehensive risk assessment:
+Provide risk assessment:
 
-### Risk Assessment for ${symbol}
+**Risk Assessment for ${symbol}**
 
 **Volatility Analysis:**
-- Historical and implied volatility trends
+- Historical and implied volatility
 - Beta and correlation analysis
-- Risk-adjusted return metrics
+- Risk-adjusted metrics
 
 **Key Risk Factors:**
 - Company-specific risks
 - Sector and market risks
-- Macroeconomic risk factors
+- Macroeconomic factors
 
 **Risk Management:**
 - Position sizing recommendations
 - Diversification strategies
 - Hedging approaches
 
-Provide detailed risk analysis with specific mitigation strategies.`
+Provide detailed risk analysis with mitigation strategies.`
 
     default:
       return `${baseContext}
@@ -256,7 +256,7 @@ async function callClaudeAPI(apiKey: string, prompt: string, maxTokens: number) 
       'anthropic-version': '2023-06-01'
     },
     body: JSON.stringify({
-      model: 'claude-3-sonnet-20240229',
+      model: 'claude-3-5-sonnet-20241022',
       max_tokens: maxTokens,
       temperature: 0.3,
       messages: [
@@ -309,9 +309,7 @@ async function callPerplexityAPI(apiKey: string, prompt: string, maxTokens: numb
       max_tokens: maxTokens,
       return_images: false,
       return_related_questions: false,
-      search_recency_filter: 'day',
-      frequency_penalty: 0.1,
-      presence_penalty: 0.1
+      search_recency_filter: 'day'
     }),
   })
 
@@ -340,7 +338,7 @@ async function callOpenAIAPI(apiKey: string, prompt: string, maxTokens: number) 
       'Content-Type': 'application/json',
     },
     body: JSON.stringify({
-      model: 'gpt-4',
+      model: 'gpt-4o-mini',
       messages: [
         {
           role: 'system',
