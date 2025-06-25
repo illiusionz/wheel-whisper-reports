@@ -341,20 +341,20 @@ export class PolygonProvider implements StockProvider {
   async getOptionsAnalysis(symbol: string, expiration: string) {
     const optionsChain = await this.getOptionsChain(symbol, expiration);
     
-    if (!optionsChain.results) {
+    if (!optionsChain || optionsChain.length === 0) {
       return null;
     }
 
-    const calls = optionsChain.results.filter(opt => opt.contract_type === 'call');
-    const puts = optionsChain.results.filter(opt => opt.contract_type === 'put');
+    const calls = optionsChain.filter(opt => opt.contract_type === 'call');
+    const puts = optionsChain.filter(opt => opt.contract_type === 'put');
 
     return {
-      totalContracts: optionsChain.results.length,
+      totalContracts: optionsChain.length,
       calls: calls.length,
       puts: puts.length,
       strikeRange: {
-        min: Math.min(...optionsChain.results.map(opt => opt.strike_price || 0)),
-        max: Math.max(...optionsChain.results.map(opt => opt.strike_price || 0))
+        min: Math.min(...optionsChain.map(opt => opt.strike_price || 0)),
+        max: Math.max(...optionsChain.map(opt => opt.strike_price || 0))
       },
       expirationDate: expiration,
       underlyingSymbol: symbol
