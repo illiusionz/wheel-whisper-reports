@@ -1,10 +1,11 @@
+
 import React, { useState, useCallback, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { Brain, Loader2, Zap, Clock, Sparkles, Settings, ChevronDown, RefreshCw, AlertCircle } from 'lucide-react';
+import { Brain, Loader2, Zap, Clock, Sparkles, Settings, ChevronDown, RefreshCw, AlertCircle, CheckCircle } from 'lucide-react';
 import { useHybridAI } from '@/hooks/useHybridAI';
 
 interface HybridAIInsightCardProps {
@@ -35,35 +36,64 @@ const HybridAIInsightCard: React.FC<HybridAIInsightCardProps> = ({
   const [hasAnalyzed, setHasAnalyzed] = useState(false);
   const [selectedModel, setSelectedModel] = useState<'auto' | 'claude' | 'openai' | 'perplexity'>('auto');
   const [showModelSelector, setShowModelSelector] = useState(false);
-  const [localError, setLocalError] = useState<string | null>(null);
+  const [debugInfo, setDebugInfo] = useState<any>(null);
 
   const handleAnalyze = useCallback(async () => {
     if (isLoading) return;
     
-    setLocalError(null);
+    console.log('🎯 HybridAIInsightCard: Starting analysis...', {
+      symbol,
+      analysisType,
+      selectedModel,
+      timestamp: new Date().toISOString()
+    });
+    
+    setDebugInfo({
+      startTime: new Date().toISOString(),
+      symbol,
+      analysisType,
+      selectedModel,
+      status: 'starting'
+    });
     
     try {
       const forceModel = selectedModel === 'auto' ? undefined : selectedModel;
       const result = await getHybridAnalysis(analysisType, symbol, data, requiresRealTime, forceModel);
+      
+      console.log('📊 HybridAIInsightCard: Analysis result:', {
+        hasResult: !!result,
+        resultType: typeof result,
+        resultKeys: result ? Object.keys(result) : [],
+        contentLength: result?.content?.length || 0
+      });
+      
+      setDebugInfo(prev => ({
+        ...prev,
+        status: result ? 'success' : 'failed',
+        endTime: new Date().toISOString(),
+        resultReceived: !!result
+      }));
+      
       if (result) {
         setAnalysis(result);
         setHasAnalyzed(true);
+        console.log('✅ HybridAIInsightCard: Analysis completed successfully');
       } else {
-        setLocalError('No analysis result received. Please check your API configuration.');
+        console.log('❌ HybridAIInsightCard: No result received but no error thrown');
       }
     } catch (err: any) {
-      console.error('Analysis error:', err);
-      const errorMessage = err?.message || 'Failed to get analysis';
+      console.error('💥 HybridAIInsightCard: Analysis error:', {
+        error: err,
+        message: err?.message,
+        stack: err?.stack
+      });
       
-      if (errorMessage.includes('401') || errorMessage.includes('unauthorized') || errorMessage.includes('authentication failed')) {
-        setLocalError('API key not configured or invalid. Please add your AI API keys in Supabase Edge Function Secrets.');
-      } else if (errorMessage.includes('400')) {
-        setLocalError('Invalid request. Please check your API configuration.');
-      } else if (errorMessage.includes('ANTHROPIC_API_KEY')) {
-        setLocalError('Claude API key is invalid or expired. Please update your ANTHROPIC_API_KEY in Supabase Edge Function Secrets.');
-      } else {
-        setLocalError(errorMessage);
-      }
+      setDebugInfo(prev => ({
+        ...prev,
+        status: 'error',
+        endTime: new Date().toISOString(),
+        error: err?.message
+      }));
     }
   }, [getHybridAnalysis, analysisType, symbol, data, requiresRealTime, selectedModel, isLoading]);
 
@@ -71,44 +101,38 @@ const HybridAIInsightCard: React.FC<HybridAIInsightCardProps> = ({
   useEffect(() => {
     setAnalysis(null);
     setHasAnalyzed(false);
-    setLocalError(null);
+    setDebugInfo(null);
   }, [symbol]);
 
   const formatAnalysisContent = useCallback((content: string) => {
     if (!content) return [];
     
-    // Split content by headers and bullet points
     const lines = content.split('\n').filter(line => line.trim());
     const formatted = [];
     
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i].trim();
       
-      // Skip empty lines
       if (!line) continue;
       
-      // Main headers (### or ####)
       if (line.startsWith('###') || line.startsWith('####')) {
         const headerText = line.replace(/^#+\s*/, '').replace(/#+$/, '').trim();
         formatted.push({ type: 'header', content: headerText });
         continue;
       }
       
-      // Bold headers at start of line followed by colon (**text:**)
       if (line.match(/^\*\*[^*]+\*\*:?\s*$/)) {
         const headerText = line.replace(/\*\*/g, '').replace(/:$/, '').trim();
         formatted.push({ type: 'subheader', content: headerText });
         continue;
       }
       
-      // Bullet points
       if (line.startsWith('•') || line.startsWith('-') || line.match(/^\d+\./)) {
         const bulletText = line.replace(/^[•-]\s*/, '').replace(/^\d+\.\s*/, '').trim();
         formatted.push({ type: 'bullet', content: bulletText });
         continue;
       }
       
-      // Regular text paragraphs
       formatted.push({ type: 'text', content: line });
     }
     
@@ -118,34 +142,26 @@ const HybridAIInsightCard: React.FC<HybridAIInsightCardProps> = ({
   const highlightNumbers = useCallback((text: string) => {
     if (!text) return text;
     
-    // First handle inline bold text (**text**) by converting to styled spans
     let processedText = text.replace(/\*\*([^*]+)\*\*/g, '<strong class="text-emerald-300 font-semibold bg-emerald-500/10 px-2 py-0.5 rounded text-sm border border-emerald-500/20">$1</strong>');
     
-    // Then handle numbers, percentages, and currencies
     return processedText.split(/(\$[\d,]+\.?\d*|[\d,]+\.?\d*%|[\d,]+\.?\d*|\b\d{4}\b|\[\d+\]|<strong[^>]*>.*?<\/strong>)/g).map((part, index) => {
-      // Skip already processed bold text
       if (part.includes('<strong')) {
         return <span key={index} dangerouslySetInnerHTML={{ __html: part }} />;
       }
       
-      // Dollar amounts
       if (/^\$[\d,]+\.?\d*$/.test(part)) {
         return <span key={index} className="text-emerald-400 font-semibold bg-emerald-400/10 px-1.5 py-0.5 rounded text-sm">{part}</span>;
       }
-      // Percentages
       if (/^[\d,]+\.?\d*%$/.test(part)) {
         const isNegative = processedText.includes('-' + part) || processedText.includes('(' + part);
         return <span key={index} className={`font-semibold px-1.5 py-0.5 rounded text-sm ${isNegative ? 'text-red-400 bg-red-400/10' : 'text-green-400 bg-green-400/10'}`}>{part}</span>;
       }
-      // Regular numbers
       if (/^[\d,]+\.?\d*$/.test(part) && part.length > 2) {
         return <span key={index} className="text-cyan-400 font-semibold bg-cyan-400/10 px-1.5 py-0.5 rounded text-sm">{part}</span>;
       }
-      // Years
       if (/^\b\d{4}\b$/.test(part)) {
         return <span key={index} className="text-blue-400 font-medium bg-blue-400/10 px-1.5 py-0.5 rounded text-sm">{part}</span>;
       }
-      // References [1], [2], etc.
       if (/^\[\d+\]$/.test(part)) {
         return <span key={index} className="text-slate-400 text-xs bg-slate-700/30 px-1 py-0.5 rounded">{part}</span>;
       }
@@ -154,11 +170,9 @@ const HybridAIInsightCard: React.FC<HybridAIInsightCardProps> = ({
   }, []);
 
   const modelInfo = analysis?.model ? modelIcons[analysis.model as keyof typeof modelIcons] : null;
-  const displayError = localError || error;
 
   return (
     <Card className="group relative overflow-hidden bg-gradient-to-br from-slate-900/50 via-slate-800/50 to-slate-900/50 border-slate-700/50 backdrop-blur-sm hover:border-purple-500/30 transition-all duration-300 hover:shadow-lg hover:shadow-purple-500/5 h-[700px] flex flex-col">
-      {/* Gradient overlay for visual depth */}
       <div className="absolute inset-0 bg-gradient-to-br from-purple-500/5 via-transparent to-cyan-500/5 opacity-0 group-hover:opacity-100 transition-opacity duration-500" />
       
       <CardHeader className="relative pb-3 space-y-3 flex-shrink-0">
@@ -183,6 +197,19 @@ const HybridAIInsightCard: React.FC<HybridAIInsightCardProps> = ({
                   <Badge variant="outline" className={`text-xs border-slate-600 ${modelInfo.bgColor} ${modelInfo.color}`}>
                     <modelInfo.icon className="h-3 w-3 mr-1" />
                     {modelInfo.name}
+                  </Badge>
+                )}
+                {debugInfo && (
+                  <Badge variant="outline" className={`text-xs border-slate-600 ${
+                    debugInfo.status === 'success' ? 'bg-green-500/10 text-green-400' :
+                    debugInfo.status === 'error' ? 'bg-red-500/10 text-red-400' :
+                    'bg-yellow-500/10 text-yellow-400'
+                  }`}>
+                    {debugInfo.status === 'success' ? <CheckCircle className="h-3 w-3 mr-1" /> :
+                     debugInfo.status === 'error' ? <AlertCircle className="h-3 w-3 mr-1" /> :
+                     <Clock className="h-3 w-3 mr-1" />
+                    }
+                    {debugInfo.status}
                   </Badge>
                 )}
               </div>
@@ -240,30 +267,31 @@ const HybridAIInsightCard: React.FC<HybridAIInsightCardProps> = ({
       </CardHeader>
       
       <CardContent className="relative pt-0 flex-1 flex flex-col min-h-0">
-        {displayError && (
+        {error && (
           <div className="mb-4 p-4 bg-red-500/10 border border-red-500/20 rounded-lg">
             <div className="flex items-center gap-3">
               <AlertCircle className="h-5 w-5 text-red-400 flex-shrink-0" />
               <div>
                 <h4 className="text-red-400 font-medium text-sm">Analysis Error</h4>
-                <p className="text-red-300 text-xs mt-1">{displayError}</p>
-                {(displayError.includes('API key') || displayError.includes('ANTHROPIC_API_KEY')) && (
-                  <div className="mt-2 p-2 bg-red-500/5 rounded border border-red-500/20">
-                    <p className="text-red-300 text-xs font-medium">How to fix:</p>
-                    <p className="text-red-300 text-xs mt-1">
-                      1. Go to your Supabase project dashboard<br/>
-                      2. Navigate to Project Settings → Edge Functions → Secrets<br/>
-                      3. Add or update your ANTHROPIC_API_KEY with a valid Claude API key<br/>
-                      4. Get a Claude API key from: https://console.anthropic.com/
-                    </p>
-                  </div>
-                )}
+                <p className="text-red-300 text-xs mt-1">{error}</p>
               </div>
             </div>
           </div>
         )}
 
-        {!hasAnalyzed && !displayError ? (
+        {debugInfo && (
+          <div className="mb-4 p-3 bg-slate-800/30 border border-slate-700/50 rounded-lg">
+            <div className="text-xs text-slate-400">
+              <div className="font-medium text-slate-300 mb-1">Debug Info:</div>
+              <div>Status: <span className="text-slate-200">{debugInfo.status}</span></div>
+              <div>Model: <span className="text-slate-200">{selectedModel}</span></div>
+              <div>Symbol: <span className="text-slate-200">{debugInfo.symbol}</span></div>
+              {debugInfo.error && <div>Error: <span className="text-red-300">{debugInfo.error}</span></div>}
+            </div>
+          </div>
+        )}
+
+        {!hasAnalyzed ? (
           <div className="flex-1 flex items-center justify-center">
             <div className="text-center space-y-4">
               <div className="mx-auto w-16 h-16 rounded-full bg-gradient-to-br from-purple-500/20 to-cyan-500/20 flex items-center justify-center border border-purple-500/20">
@@ -379,7 +407,7 @@ const HybridAIInsightCard: React.FC<HybridAIInsightCardProps> = ({
               </Button>
             </div>
           </div>
-        ) : displayError ? (
+        ) : (
           <div className="flex-1 flex items-center justify-center">
             <div className="text-center space-y-4">
               <div className="mx-auto w-16 h-16 rounded-full bg-red-500/10 border border-red-500/20 flex items-center justify-center">
@@ -406,7 +434,7 @@ const HybridAIInsightCard: React.FC<HybridAIInsightCardProps> = ({
               </Button>
             </div>
           </div>
-        ) : null}
+        )}
       </CardContent>
     </Card>
   );

@@ -5,11 +5,15 @@ export interface AIResponse {
 }
 
 export async function callClaudeAPI(apiKey: string, prompt: string, maxTokens: number): Promise<AIResponse> {
-  console.log('=== CLAUDE API CALL START ===')
-  console.log('API Key length:', apiKey?.length || 0)
-  console.log('API Key format valid:', apiKey?.startsWith('sk-ant-') || false)
-  console.log('Prompt length:', prompt?.length || 0)
-  console.log('Max tokens requested:', maxTokens)
+  const requestId = crypto.randomUUID();
+  console.log(`🧠 [${requestId}] CLAUDE API CALL START`);
+  console.log(`🔑 [${requestId}] API Key validation:`, {
+    hasKey: !!apiKey,
+    keyLength: apiKey?.length || 0,
+    startsCorrectly: apiKey?.startsWith('sk-ant-') || false,
+    promptLength: prompt?.length || 0,
+    maxTokens: maxTokens
+  });
   
   // Enhanced input validation
   if (!apiKey || typeof apiKey !== 'string') {
@@ -42,20 +46,23 @@ export async function callClaudeAPI(apiKey: string, prompt: string, maxTokens: n
         content: prompt.trim()
       }
     ]
-  }
+  };
   
-  console.log('Making request to Claude API...')
-  console.log('Request model:', requestBody.model)
-  console.log('Request max_tokens:', requestBody.max_tokens)
-  console.log('Request temperature:', requestBody.temperature)
+  console.log(`📤 [${requestId}] Request configuration:`, {
+    model: requestBody.model,
+    max_tokens: requestBody.max_tokens,
+    temperature: requestBody.temperature,
+    messageLength: requestBody.messages[0].content.length
+  });
   
   try {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => {
-      console.log('Claude API request timeout after 30 seconds');
+      console.log(`⏰ [${requestId}] Request timeout after 45 seconds`);
       controller.abort();
-    }, 30000); // 30 second timeout - increased from 25
+    }, 45000); // Increased timeout to 45 seconds
     
+    const startTime = Date.now();
     const response = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
       headers: {
@@ -68,21 +75,25 @@ export async function callClaudeAPI(apiKey: string, prompt: string, maxTokens: n
     });
 
     clearTimeout(timeoutId);
+    const fetchTime = Date.now() - startTime;
 
-    console.log('=== CLAUDE API RESPONSE ===')
-    console.log('Response status:', response.status)
-    console.log('Response ok:', response.ok)
-    console.log('Response headers:', Object.fromEntries(response.headers.entries()))
+    console.log(`📨 [${requestId}] Claude API Response:`, {
+      status: response.status,
+      ok: response.ok,
+      fetchTime: `${fetchTime}ms`,
+      headers: Object.fromEntries(response.headers.entries())
+    });
     
     if (!response.ok) {
-      const errorText = await response.text()
-      console.error('=== CLAUDE API ERROR DETAILS ===')
-      console.error(`Status: ${response.status}`)
-      console.error(`Status Text: ${response.statusText}`)
-      console.error(`Error Response Body: ${errorText}`)
+      const errorText = await response.text();
+      console.error(`❌ [${requestId}] Claude API Error:`, {
+        status: response.status,
+        statusText: response.statusText,
+        errorBody: errorText
+      });
       
       if (response.status === 401) {
-        throw new Error('Claude API authentication failed. The API key is invalid, expired, or has insufficient permissions. Please verify your ANTHROPIC_API_KEY in Supabase secrets.')
+        throw new Error('Claude API authentication failed. Please verify your ANTHROPIC_API_KEY in Supabase secrets.');
       } else if (response.status === 400) {
         let errorMessage = 'Claude API request error';
         try {
@@ -91,74 +102,77 @@ export async function callClaudeAPI(apiKey: string, prompt: string, maxTokens: n
         } catch {
           errorMessage = errorText;
         }
-        throw new Error(`Claude API request error: ${errorMessage}`)
+        throw new Error(`Claude API request error: ${errorMessage}`);
       } else if (response.status === 429) {
-        throw new Error('Claude API rate limit exceeded. Please try again later or upgrade your API plan.')
+        throw new Error('Claude API rate limit exceeded. Please try again later.');
       } else if (response.status >= 500) {
-        throw new Error(`Claude API server error (${response.status}): Service temporarily unavailable`)
+        throw new Error(`Claude API server error (${response.status}): Service temporarily unavailable`);
       } else {
-        throw new Error(`Claude API error (${response.status}): ${errorText}`)
+        throw new Error(`Claude API error (${response.status}): ${errorText}`);
       }
     }
 
-    const data = await response.json()
-    console.log('Response data structure:', {
+    const data = await response.json();
+    const parseTime = Date.now() - startTime;
+    
+    console.log(`📊 [${requestId}] Response data analysis:`, {
       hasContent: !!data.content,
-      contentLength: data.content?.length || 0,
       contentType: Array.isArray(data.content) ? 'array' : typeof data.content,
-      contentFirstItem: data.content?.[0] ? typeof data.content[0] : 'N/A'
-    })
+      contentLength: data.content?.length || 0,
+      parseTime: `${parseTime}ms`
+    });
     
     // Enhanced content extraction
     let content = '';
     if (data.content && Array.isArray(data.content) && data.content.length > 0) {
-      // Claude's response format has content as an array of objects
       const textContent = data.content.find(item => item.type === 'text');
       content = textContent?.text || data.content[0]?.text || '';
     } else if (typeof data.content === 'string') {
       content = data.content;
     }
     
-    console.log('Extracted content length:', content.length);
-    console.log('Extracted content preview:', content.substring(0, 200));
+    console.log(`📝 [${requestId}] Content extraction:`, {
+      extractedLength: content.length,
+      preview: content.substring(0, 100) + (content.length > 100 ? '...' : '')
+    });
     
     if (!content || typeof content !== 'string') {
-      console.error('=== INVALID CONTENT FROM CLAUDE ===')
-      console.error('Content received:', data.content)
-      console.error('Extracted content:', content)
-      throw new Error('Claude API returned invalid or empty content')
+      console.error(`❌ [${requestId}] Invalid content:`, {
+        originalContent: data.content,
+        extractedContent: content
+      });
+      throw new Error('Claude API returned invalid or empty content');
     }
     
     if (content.trim().length === 0) {
-      console.error('=== EMPTY CONTENT FROM CLAUDE ===')
-      throw new Error('Claude API returned empty analysis content')
+      throw new Error('Claude API returned empty analysis content');
     }
     
-    console.log('✅ Claude analysis completed successfully')
-    console.log('Final content length:', content.length)
-    console.log('Final content preview:', content.substring(0, 100) + '...')
+    console.log(`✅ [${requestId}] Claude analysis completed successfully:`, {
+      finalContentLength: content.length,
+      totalTime: `${parseTime}ms`
+    });
     
     return {
       content: content.trim(),
       confidence: 0.85
-    }
+    };
     
   } catch (error) {
-    console.error('=== ERROR IN CLAUDE API CALL ===')
-    console.error('Error type:', error?.constructor?.name || 'Unknown')
-    console.error('Error message:', error?.message || 'No message')
-    console.error('Error stack:', error?.stack || 'No stack')
+    console.error(`💥 [${requestId}] Claude API Error:`, {
+      name: error?.name || 'Unknown',
+      message: error?.message || 'No message',
+      stack: error?.stack || 'No stack'
+    });
     
-    // Enhanced error handling with more specific messages
     if (error.name === 'AbortError') {
-      throw new Error('Claude API request timed out after 30 seconds. Please try again with a shorter prompt or check your internet connection.')
+      throw new Error('Claude API request timed out after 45 seconds. Please try again.');
     }
     
     if (error.message?.includes('fetch')) {
-      throw new Error('Failed to connect to Claude API. Please check your internet connection and try again.')
+      throw new Error('Failed to connect to Claude API. Please check your internet connection.');
     }
     
-    // Re-throw other errors as-is to preserve error messages
-    throw error
+    throw error;
   }
 }

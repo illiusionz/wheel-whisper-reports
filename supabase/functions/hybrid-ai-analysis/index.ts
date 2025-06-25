@@ -12,9 +12,13 @@ const corsHeaders = {
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
 }
 
-// Input validation functions
 function validateHybridAIRequest(body: any) {
-  console.log('🔍 VALIDATING REQUEST BODY:', JSON.stringify(body, null, 2))
+  console.log('🔍 VALIDATING REQUEST:', {
+    hasBody: !!body,
+    bodyType: typeof body,
+    bodyKeys: Object.keys(body || {}),
+    timestamp: new Date().toISOString()
+  });
   
   if (!body || typeof body !== 'object') {
     throw new Error('Invalid request body - must be a valid JSON object');
@@ -22,13 +26,11 @@ function validateHybridAIRequest(body: any) {
 
   const { analysisType, symbol, data, requiresRealTime, forceModel, maxTokens, temperature } = body;
 
-  // Validate analysis type
   const validAnalysisTypes = ['technical', 'options', 'risk', 'sentiment', 'news', 'general'];
   if (!analysisType || !validAnalysisTypes.includes(analysisType)) {
     throw new Error(`Invalid analysis type "${analysisType}". Must be one of: ${validAnalysisTypes.join(', ')}`);
   }
 
-  // Validate symbol
   if (!symbol || typeof symbol !== 'string') {
     throw new Error('Symbol is required and must be a string');
   }
@@ -38,24 +40,20 @@ function validateHybridAIRequest(body: any) {
     throw new Error('Symbol must be 1-10 uppercase letters');
   }
 
-  // Validate force model if provided
   const validModels = ['claude', 'openai', 'perplexity'];
   if (forceModel && !validModels.includes(forceModel)) {
     throw new Error(`Invalid force model "${forceModel}". Must be one of: ${validModels.join(', ')}`);
   }
 
-  // Validate max tokens
   const validatedMaxTokens = maxTokens && typeof maxTokens === 'number' && maxTokens > 0 && maxTokens <= 4000 
     ? Math.floor(maxTokens) 
-    : 1000;
+    : 2000;
 
-  // Validate temperature
   const validatedTemperature = temperature && typeof temperature === 'number' && temperature >= 0 && temperature <= 2
     ? temperature
     : 0.3;
 
-  console.log('✅ REQUEST VALIDATION SUCCESSFUL')
-  return {
+  const validatedRequest = {
     analysisType,
     symbol: sanitizedSymbol,
     data: data || {},
@@ -64,34 +62,39 @@ function validateHybridAIRequest(body: any) {
     maxTokens: validatedMaxTokens,
     temperature: validatedTemperature
   };
+
+  console.log('✅ REQUEST VALIDATION SUCCESS:', validatedRequest);
+  return validatedRequest;
 }
 
-console.log('🚀 HYBRID AI ANALYSIS FUNCTION INITIALIZING...')
-console.log('📊 Function startup time:', new Date().toISOString())
+console.log('🚀 HYBRID AI ANALYSIS FUNCTION STARTING...');
 
 serve(async (req) => {
-  console.log('🔥 FUNCTION CALLED - REQUEST RECEIVED!')
-  console.log('⏰ Request time:', new Date().toISOString())
-  console.log('🌐 Method:', req.method)
-  console.log('📍 URL:', req.url)
-  console.log('🔑 Headers:', Object.fromEntries(req.headers.entries()))
+  const requestId = crypto.randomUUID();
+  const startTime = Date.now();
+  
+  console.log(`📨 [${requestId}] REQUEST RECEIVED:`, {
+    method: req.method,
+    url: req.url,
+    timestamp: new Date().toISOString(),
+    headers: Object.fromEntries(req.headers.entries())
+  });
 
   try {
-    // Handle CORS preflight requests
     if (req.method === 'OPTIONS') {
-      console.log('✅ CORS preflight - returning headers')
+      console.log(`✅ [${requestId}] CORS preflight handled`);
       return new Response('ok', { 
         headers: corsHeaders,
         status: 200 
-      })
+      });
     }
 
-    // Only allow POST requests
     if (req.method !== 'POST') {
-      console.log('❌ Invalid method:', req.method)
+      console.log(`❌ [${requestId}] Invalid method: ${req.method}`);
       return new Response(
         JSON.stringify({ 
           error: 'Method not allowed',
+          requestId,
           received: req.method,
           expected: 'POST'
         }),
@@ -102,39 +105,31 @@ serve(async (req) => {
             'Content-Type': 'application/json' 
           } 
         }
-      )
+      );
     }
 
-    console.log('📝 Processing POST request...')
-
-    // Parse request body with timeout protection
+    // Parse request body with enhanced error handling
     let requestBody;
     try {
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => {
-        console.log('⏰ Request body parsing timeout');
-        controller.abort();
-      }, 10000); // 10 second timeout
-      
       const bodyText = await req.text();
-      clearTimeout(timeoutId);
-      
-      console.log('📄 Raw request body length:', bodyText.length);
-      console.log('📄 Raw request body preview:', bodyText.substring(0, 500));
+      console.log(`📄 [${requestId}] Raw body received:`, {
+        length: bodyText.length,
+        preview: bodyText.substring(0, 200) + (bodyText.length > 200 ? '...' : '')
+      });
       
       if (!bodyText || bodyText.trim() === '') {
         throw new Error('Request body is empty');
       }
       
       requestBody = JSON.parse(bodyText);
-      console.log('✅ Request body parsed successfully');
+      console.log(`✅ [${requestId}] Body parsed successfully`);
     } catch (parseError) {
-      console.error('❌ JSON parse error:', parseError);
+      console.error(`❌ [${requestId}] JSON parse error:`, parseError);
       return new Response(
         JSON.stringify({ 
           error: 'Invalid JSON in request body',
-          details: parseError.message,
-          received: typeof parseError === 'object' ? parseError.name : 'Unknown error'
+          requestId,
+          details: parseError.message
         }),
         {
           status: 400,
@@ -143,20 +138,20 @@ serve(async (req) => {
             'Content-Type': 'application/json' 
           }
         }
-      )
+      );
     }
     
-    // Validate and sanitize input
-    console.log('🔎 Validating request...')
+    // Validate request
     let validatedRequest;
     try {
       validatedRequest = validateHybridAIRequest(requestBody);
-      console.log('✅ Request validation successful:', validatedRequest);
+      console.log(`✅ [${requestId}] Request validated`);
     } catch (validationError) {
-      console.error('❌ Validation error:', validationError.message);
+      console.error(`❌ [${requestId}] Validation error:`, validationError.message);
       return new Response(
         JSON.stringify({ 
           error: 'Request validation failed',
+          requestId,
           details: validationError.message 
         }),
         {
@@ -166,27 +161,28 @@ serve(async (req) => {
             'Content-Type': 'application/json' 
           }
         }
-      )
+      );
     }
     
-    console.log(`🎯 Analysis Configuration:`)
-    console.log(`   Type: ${validatedRequest.analysisType}`)
-    console.log(`   Symbol: ${validatedRequest.symbol}`)
-    console.log(`   Force Model: ${validatedRequest.forceModel || 'auto'}`)
-    console.log(`   Max Tokens: ${validatedRequest.maxTokens}`)
-    console.log(`   Temperature: ${validatedRequest.temperature}`)
-    console.log(`   Real Time: ${validatedRequest.requiresRealTime}`)
+    console.log(`🎯 [${requestId}] Analysis Configuration:`, {
+      analysisType: validatedRequest.analysisType,
+      symbol: validatedRequest.symbol,
+      forceModel: validatedRequest.forceModel || 'auto',
+      maxTokens: validatedRequest.maxTokens,
+      temperature: validatedRequest.temperature
+    });
     
-    // Determine the best model for the analysis type
+    // Select optimal model
     let selectedModel;
     try {
-      selectedModel = selectOptimalModel(validatedRequest.analysisType, validatedRequest.forceModel)
-      console.log(`🤖 Selected AI model: ${selectedModel}`)
+      selectedModel = selectOptimalModel(validatedRequest.analysisType, validatedRequest.forceModel);
+      console.log(`🤖 [${requestId}] Selected model: ${selectedModel}`);
     } catch (modelError) {
-      console.error('❌ Model selection error:', modelError.message)
+      console.error(`❌ [${requestId}] Model selection error:`, modelError.message);
       return new Response(
         JSON.stringify({ 
           error: 'Model selection failed',
+          requestId,
           details: modelError.message 
         }),
         {
@@ -196,52 +192,40 @@ serve(async (req) => {
             'Content-Type': 'application/json' 
           }
         }
-      )
+      );
     }
 
-    // Get API key for selected model with enhanced error handling
-    console.log(`🔑 Getting API key for ${selectedModel}...`)
+    // Get API key
+    console.log(`🔑 [${requestId}] Getting API key for ${selectedModel}...`);
     let apiKey, keySource;
     try {
-      const keyResult = getAPIKey(selectedModel)
-      apiKey = keyResult.key
-      keySource = keyResult.source
+      const keyResult = getAPIKey(selectedModel);
+      apiKey = keyResult.key;
+      keySource = keyResult.source;
       
-      console.log(`✅ Got API key from ${keySource} (length: ${apiKey?.length || 0})`);
+      console.log(`✅ [${requestId}] API key obtained from ${keySource} (length: ${apiKey?.length || 0})`);
       
-      // Enhanced API key validation
       if (!apiKey || typeof apiKey !== 'string' || apiKey.trim().length === 0) {
         throw new Error(`${selectedModel.toUpperCase()} API key is empty or invalid`);
       }
       
-      // Model-specific key format validation
-      if (selectedModel === 'claude') {
-        if (!apiKey.startsWith('sk-ant-')) {
-          throw new Error(`Claude API key must start with 'sk-ant-' but got key starting with '${apiKey.substring(0, 10)}...'`);
-        }
-        if (apiKey.length < 40) {
-          throw new Error(`Claude API key appears to be too short (${apiKey.length} characters)`);
-        }
-      } else if (selectedModel === 'openai') {
-        if (!apiKey.startsWith('sk-')) {
-          throw new Error(`OpenAI API key must start with 'sk-' but got key starting with '${apiKey.substring(0, 10)}...'`);
-        }
-      } else if (selectedModel === 'perplexity') {
-        if (!apiKey.startsWith('pplx-')) {
-          throw new Error(`Perplexity API key must start with 'pplx-' but got key starting with '${apiKey.substring(0, 10)}...'`);
-        }
+      // Model-specific validation
+      if (selectedModel === 'claude' && !apiKey.startsWith('sk-ant-')) {
+        throw new Error(`Claude API key must start with 'sk-ant-'`);
+      } else if (selectedModel === 'openai' && !apiKey.startsWith('sk-')) {
+        throw new Error(`OpenAI API key must start with 'sk-'`);
+      } else if (selectedModel === 'perplexity' && !apiKey.startsWith('pplx-')) {
+        throw new Error(`Perplexity API key must start with 'pplx-'`);
       }
       
-      console.log(`✅ API key validation passed for ${selectedModel}`);
     } catch (keyError) {
-      console.error(`❌ API key error for ${selectedModel}:`, keyError.message)
+      console.error(`❌ [${requestId}] API key error:`, keyError.message);
       return new Response(
         JSON.stringify({ 
           error: `${selectedModel.toUpperCase()} API key not configured or invalid`,
+          requestId,
           details: keyError.message,
-          model: selectedModel,
-          keyName: keySource,
-          suggestion: `Please add a valid ${selectedModel.toUpperCase()} API key to Supabase Edge Function Secrets. Go to Project Settings > Edge Functions > Secrets and add ${keySource}.`
+          suggestion: `Please add a valid ${selectedModel.toUpperCase()} API key to Supabase Edge Function Secrets`
         }),
         {
           status: 500,
@@ -250,26 +234,25 @@ serve(async (req) => {
             'Content-Type': 'application/json' 
           }
         }
-      )
+      );
     }
 
-    // Build context-aware prompt
-    console.log('📝 Building analysis prompt...')
+    // Build prompt
+    console.log(`📝 [${requestId}] Building analysis prompt...`);
     let contextPrompt;
     try {
-      contextPrompt = buildContextPrompt(validatedRequest.analysisType, validatedRequest.symbol, validatedRequest.data)
-      console.log(`✅ Prompt built (${contextPrompt.length} characters)`)
-      console.log(`📝 Prompt preview:`, contextPrompt.substring(0, 300) + '...')
+      contextPrompt = buildContextPrompt(validatedRequest.analysisType, validatedRequest.symbol, validatedRequest.data);
+      console.log(`✅ [${requestId}] Prompt built (${contextPrompt.length} characters)`);
       
       if (contextPrompt.length > 15000) {
-        console.log('⚠️ Large prompt detected, truncating...')
-        contextPrompt = contextPrompt.substring(0, 15000) + '\n\n[Content truncated for processing]'
+        contextPrompt = contextPrompt.substring(0, 15000) + '\n\n[Content truncated]';
       }
     } catch (promptError) {
-      console.error('❌ Prompt building error:', promptError.message)
+      console.error(`❌ [${requestId}] Prompt building error:`, promptError.message);
       return new Response(
         JSON.stringify({ 
           error: 'Failed to build analysis prompt',
+          requestId,
           details: promptError.message 
         }),
         {
@@ -279,44 +262,40 @@ serve(async (req) => {
             'Content-Type': 'application/json' 
           }
         }
-      )
+      );
     }
     
-    let analysis = ''
-    let confidence = 0.7
+    // Call AI service
+    console.log(`🚀 [${requestId}] Calling ${selectedModel} API...`);
+    const aiStartTime = Date.now();
     
-    // Call the appropriate AI service with timeout protection
-    console.log(`🚀 Calling ${selectedModel} API...`)
-    const startTime = Date.now();
+    let analysis = '';
+    let confidence = 0.7;
     
     try {
       let result;
       if (selectedModel === 'perplexity') {
-        console.log('🌐 Using Perplexity API...')
-        result = await callPerplexityAPI(apiKey, contextPrompt, validatedRequest.maxTokens)
+        result = await callPerplexityAPI(apiKey, contextPrompt, validatedRequest.maxTokens);
       } else if (selectedModel === 'openai') {
-        console.log('🤖 Using OpenAI API...')
-        result = await callOpenAIAPI(apiKey, contextPrompt, validatedRequest.maxTokens)
+        result = await callOpenAIAPI(apiKey, contextPrompt, validatedRequest.maxTokens);
       } else {
-        console.log('🧠 Using Claude API...')
-        result = await callClaudeAPI(apiKey, contextPrompt, validatedRequest.maxTokens)
+        result = await callClaudeAPI(apiKey, contextPrompt, validatedRequest.maxTokens);
       }
       
-      const processingTime = Date.now() - startTime;
-      console.log(`⏱️ AI processing completed in ${processingTime}ms`);
+      const aiProcessingTime = Date.now() - aiStartTime;
+      console.log(`⏱️ [${requestId}] AI processing completed in ${aiProcessingTime}ms`);
       
       if (!result || typeof result !== 'object') {
-        console.error('❌ Invalid result from AI service:', result);
-        throw new Error('Invalid response from AI service - no result object');
+        throw new Error('Invalid response from AI service');
       }
       
       analysis = result.content || '';
       confidence = result.confidence || 0.7;
       
-      console.log(`✅ ${selectedModel} analysis completed:`, {
+      console.log(`✅ [${requestId}] Analysis completed:`, {
         contentLength: analysis.length,
         confidence: confidence,
-        processingTime: processingTime
+        processingTime: aiProcessingTime
       });
       
       if (!analysis || analysis.trim().length === 0) {
@@ -324,36 +303,32 @@ serve(async (req) => {
       }
       
     } catch (aiError) {
-      console.error(`❌ ${selectedModel} AI service error:`)
-      console.error('Error name:', aiError.name)
-      console.error('Error message:', aiError.message)
-      console.error('Error stack:', aiError.stack)
+      console.error(`❌ [${requestId}] AI service error:`, {
+        name: aiError.name,
+        message: aiError.message,
+        stack: aiError.stack
+      });
       
-      // Enhanced error messages based on error type and model
       let errorMessage = aiError.message || 'Unknown AI service error';
       let suggestion = 'Please check your API configuration and try again';
       
-      if (selectedModel === 'claude') {
-        if (aiError.message?.includes('authentication') || aiError.message?.includes('401')) {
-          errorMessage = 'Claude API authentication failed. The API key is invalid, expired, or has insufficient permissions.';
-          suggestion = 'Please update your ANTHROPIC_API_KEY in Supabase Edge Function Secrets with a valid key from https://console.anthropic.com/';
-        } else if (aiError.message?.includes('rate limit') || aiError.message?.includes('429')) {
-          errorMessage = 'Claude API rate limit exceeded. Please try again in a few minutes.';
-          suggestion = 'Wait before making another request or upgrade your API plan';
-        } else if (aiError.name === 'AbortError') {
-          errorMessage = 'Claude API request timed out. The request took too long to process.';
-          suggestion = 'Try again with a simpler request or check your internet connection';
-        }
+      if (aiError.message?.includes('authentication') || aiError.message?.includes('401')) {
+        errorMessage = `${selectedModel} API authentication failed`;
+        suggestion = `Please update your ${selectedModel.toUpperCase()}_API_KEY in Supabase Edge Function Secrets`;
+      } else if (aiError.message?.includes('rate limit') || aiError.message?.includes('429')) {
+        errorMessage = `${selectedModel} API rate limit exceeded`;
+        suggestion = 'Wait before making another request or upgrade your API plan';
+      } else if (aiError.name === 'AbortError') {
+        errorMessage = `${selectedModel} API request timed out`;
+        suggestion = 'Try again with a simpler request';
       }
       
       return new Response(
         JSON.stringify({ 
           error: `Failed to get analysis from ${selectedModel}`,
+          requestId,
           details: errorMessage,
-          model: selectedModel,
-          errorType: aiError.name || 'Unknown',
-          suggestion: suggestion,
-          timestamp: new Date().toISOString()
+          suggestion: suggestion
         }),
         {
           status: 500,
@@ -362,19 +337,17 @@ serve(async (req) => {
             'Content-Type': 'application/json' 
           }
         }
-      )
+      );
     }
 
-    // Final validation of AI response
-    console.log('🔍 Validating AI response...')
+    // Final validation and response
     if (!analysis || typeof analysis !== 'string' || analysis.trim().length === 0) {
-      console.error('❌ Empty or invalid analysis received from AI model')
+      console.error(`❌ [${requestId}] Empty or invalid analysis`);
       return new Response(
         JSON.stringify({ 
           error: 'Empty or invalid response from AI model',
-          model: selectedModel,
-          details: 'The AI service returned an empty or invalid response',
-          timestamp: new Date().toISOString()
+          requestId,
+          model: selectedModel
         }),
         {
           status: 500,
@@ -383,31 +356,31 @@ serve(async (req) => {
             'Content-Type': 'application/json' 
           }
         }
-      )
+      );
     }
 
     const totalProcessingTime = Date.now() - startTime;
     const response = {
       content: analysis.trim(),
       model: selectedModel,
-      confidence: Math.max(0, Math.min(1, confidence)), // Ensure confidence is between 0 and 1
+      confidence: Math.max(0, Math.min(1, confidence)),
       timestamp: new Date().toISOString(),
       metadata: {
+        requestId,
         analysisType: validatedRequest.analysisType,
         symbol: validatedRequest.symbol,
         tokenCount: analysis.length,
-        modelUsed: selectedModel,
         processingTime: totalProcessingTime,
         apiKeySource: keySource
       }
-    }
+    };
 
-    console.log('🎉 SUCCESS - Returning analysis response')
-    console.log(`   Content length: ${response.content.length}`)
-    console.log(`   Model: ${response.model}`)
-    console.log(`   Confidence: ${response.confidence}`)
-    console.log(`   Processing time: ${totalProcessingTime}ms`)
-    console.log('⏰ Request completed at:', new Date().toISOString())
+    console.log(`🎉 [${requestId}] SUCCESS - Analysis completed:`, {
+      contentLength: response.content.length,
+      model: response.model,
+      confidence: response.confidence,
+      processingTime: totalProcessingTime
+    });
 
     return new Response(
       JSON.stringify(response),
@@ -418,21 +391,23 @@ serve(async (req) => {
         },
         status: 200
       }
-    )
+    );
 
   } catch (error) {
-    console.error('💥 CRITICAL ERROR in hybrid-ai-analysis function:')
-    console.error('   Error type:', error?.constructor?.name || 'Unknown')
-    console.error('   Error message:', error?.message || 'No message')
-    console.error('   Error stack:', error?.stack || 'No stack trace')
-    console.error('⏰ Error occurred at:', new Date().toISOString())
+    const totalTime = Date.now() - startTime;
+    console.error(`💥 [${requestId}] CRITICAL ERROR:`, {
+      name: error?.constructor?.name || 'Unknown',
+      message: error?.message || 'No message',
+      stack: error?.stack || 'No stack',
+      processingTime: totalTime
+    });
     
     return new Response(
       JSON.stringify({ 
         error: 'Critical failure in AI analysis function',
+        requestId,
         details: error?.message || 'Unknown internal server error',
-        timestamp: new Date().toISOString(),
-        errorType: error?.constructor?.name || 'Unknown'
+        timestamp: new Date().toISOString()
       }),
       { 
         status: 500,
@@ -441,8 +416,8 @@ serve(async (req) => {
           'Content-Type': 'application/json' 
         } 
       }
-    )
+    );
   }
-})
+});
 
-console.log('🎯 HYBRID AI ANALYSIS FUNCTION READY TO SERVE')
+console.log('🎯 HYBRID AI ANALYSIS FUNCTION READY');
