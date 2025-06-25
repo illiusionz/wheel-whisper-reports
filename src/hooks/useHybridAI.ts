@@ -26,19 +26,22 @@ export const useHybridAI = () => {
           data,
           requiresRealTime,
           forceModel,
-          maxTokens: 2000, // Increased token limit
+          maxTokens: 2000,
           temperature: 0.3
         }
       });
 
       if (functionError) {
         console.error('Hybrid AI function error:', functionError);
-        throw functionError;
+        const errorMessage = functionError.message || 'Failed to get AI analysis';
+        setError(errorMessage);
+        return null;
       }
 
       if (!result) {
         console.error('No result returned from hybrid AI analysis');
-        throw new Error('No analysis result received');
+        setError('No analysis result received');
+        return null;
       }
 
       console.log(`Hybrid AI analysis completed for ${symbol}:`, {
@@ -51,15 +54,16 @@ export const useHybridAI = () => {
       // Check if content seems truncated
       if (result.content && result.content.length > 0) {
         const lastChar = result.content.trim().slice(-1);
-        const seemsTruncated = !['."', '"!', '"?', '.', ':', ';'].includes(lastChar) && 
-                              !result.content.trim().endsWith('...') &&
-                              result.content.length > 500;
+        const seemsTruncated = !['.', '!', '?', ':', ';'].some(char => 
+          result.content.trim().endsWith(char + '"') || result.content.trim().endsWith(char)
+        ) && !result.content.trim().endsWith('...') && result.content.length > 500;
         
         if (seemsTruncated) {
           console.warn(`AI response for ${symbol} may be truncated. Last character: "${lastChar}"`);
         }
       }
 
+      setError(null);
       return {
         content: result.content || 'Analysis completed but no content received.',
         model: result.model || 'unknown',
@@ -72,7 +76,8 @@ export const useHybridAI = () => {
 
     } catch (err: any) {
       console.error('Hybrid AI analysis error:', err);
-      setError(err.message || 'Failed to get AI analysis');
+      const errorMessage = err.message || 'Failed to get AI analysis';
+      setError(errorMessage);
       return null;
     } finally {
       setIsLoading(false);

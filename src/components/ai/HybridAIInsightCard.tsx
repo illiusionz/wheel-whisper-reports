@@ -1,11 +1,10 @@
-
 import React, { useState, useCallback, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { Brain, Loader2, Zap, Clock, Sparkles, Settings, ChevronDown, RefreshCw } from 'lucide-react';
+import { Brain, Loader2, Zap, Clock, Sparkles, Settings, ChevronDown, RefreshCw, AlertCircle } from 'lucide-react';
 import { useHybridAI } from '@/hooks/useHybridAI';
 
 interface HybridAIInsightCardProps {
@@ -36,9 +35,12 @@ const HybridAIInsightCard: React.FC<HybridAIInsightCardProps> = ({
   const [hasAnalyzed, setHasAnalyzed] = useState(false);
   const [selectedModel, setSelectedModel] = useState<'auto' | 'claude' | 'openai' | 'perplexity'>('auto');
   const [showModelSelector, setShowModelSelector] = useState(false);
+  const [localError, setLocalError] = useState<string | null>(null);
 
   const handleAnalyze = useCallback(async () => {
     if (isLoading) return;
+    
+    setLocalError(null);
     
     try {
       const forceModel = selectedModel === 'auto' ? undefined : selectedModel;
@@ -46,9 +48,20 @@ const HybridAIInsightCard: React.FC<HybridAIInsightCardProps> = ({
       if (result) {
         setAnalysis(result);
         setHasAnalyzed(true);
+      } else {
+        setLocalError('No analysis result received. Please check your API configuration.');
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error('Analysis error:', err);
+      const errorMessage = err?.message || 'Failed to get analysis';
+      
+      if (errorMessage.includes('401') || errorMessage.includes('unauthorized')) {
+        setLocalError('API key not configured. Please add your AI API keys in Supabase secrets.');
+      } else if (errorMessage.includes('400')) {
+        setLocalError('Invalid request. Please check your API configuration.');
+      } else {
+        setLocalError(errorMessage);
+      }
     }
   }, [getHybridAnalysis, analysisType, symbol, data, requiresRealTime, selectedModel, isLoading]);
 
@@ -56,6 +69,7 @@ const HybridAIInsightCard: React.FC<HybridAIInsightCardProps> = ({
   useEffect(() => {
     setAnalysis(null);
     setHasAnalyzed(false);
+    setLocalError(null);
   }, [symbol]);
 
   const formatAnalysisContent = useCallback((content: string) => {
@@ -137,11 +151,8 @@ const HybridAIInsightCard: React.FC<HybridAIInsightCardProps> = ({
     });
   }, []);
 
-  if (error) {
-    return null; // Gracefully hide on error
-  }
-
   const modelInfo = analysis?.model ? modelIcons[analysis.model as keyof typeof modelIcons] : null;
+  const displayError = localError || error;
 
   return (
     <Card className="group relative overflow-hidden bg-gradient-to-br from-slate-900/50 via-slate-800/50 to-slate-900/50 border-slate-700/50 backdrop-blur-sm hover:border-purple-500/30 transition-all duration-300 hover:shadow-lg hover:shadow-purple-500/5 h-[700px] flex flex-col">
@@ -227,7 +238,24 @@ const HybridAIInsightCard: React.FC<HybridAIInsightCardProps> = ({
       </CardHeader>
       
       <CardContent className="relative pt-0 flex-1 flex flex-col min-h-0">
-        {!hasAnalyzed ? (
+        {displayError && (
+          <div className="mb-4 p-4 bg-red-500/10 border border-red-500/20 rounded-lg">
+            <div className="flex items-center gap-3">
+              <AlertCircle className="h-5 w-5 text-red-400 flex-shrink-0" />
+              <div>
+                <h4 className="text-red-400 font-medium text-sm">Analysis Error</h4>
+                <p className="text-red-300 text-xs mt-1">{displayError}</p>
+                {displayError.includes('API key') && (
+                  <p className="text-red-300 text-xs mt-2">
+                    Configure your API keys in Supabase Edge Function Secrets for Claude, OpenAI, and Perplexity.
+                  </p>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {!hasAnalyzed && !displayError ? (
           <div className="flex-1 flex items-center justify-center">
             <div className="text-center space-y-4">
               <div className="mx-auto w-16 h-16 rounded-full bg-gradient-to-br from-purple-500/20 to-cyan-500/20 flex items-center justify-center border border-purple-500/20">
@@ -263,7 +291,7 @@ const HybridAIInsightCard: React.FC<HybridAIInsightCardProps> = ({
               </Button>
             </div>
           </div>
-        ) : (
+        ) : hasAnalyzed && analysis ? (
           <div className="flex-1 flex flex-col min-h-0 space-y-4">
             <ScrollArea className="flex-1 min-h-0">
               <div className="bg-gradient-to-br from-slate-800/80 to-slate-900/80 rounded-xl p-6 border border-slate-600/30 backdrop-blur-sm">
@@ -343,7 +371,34 @@ const HybridAIInsightCard: React.FC<HybridAIInsightCardProps> = ({
               </Button>
             </div>
           </div>
-        )}
+        ) : displayError ? (
+          <div className="flex-1 flex items-center justify-center">
+            <div className="text-center space-y-4">
+              <div className="mx-auto w-16 h-16 rounded-full bg-red-500/10 border border-red-500/20 flex items-center justify-center">
+                <AlertCircle className="h-8 w-8 text-red-400" />
+              </div>
+              
+              <Button 
+                onClick={handleAnalyze}
+                disabled={isLoading}
+                variant="outline"
+                className="border-red-500/30 text-red-300 hover:bg-red-500/10"
+              >
+                {isLoading ? (
+                  <>
+                    <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                    Retrying...
+                  </>
+                ) : (
+                  <>
+                    <RefreshCw className="h-4 w-4 mr-2" />
+                    Retry Analysis
+                  </>
+                )}
+              </Button>
+            </div>
+          </div>
+        ) : null}
       </CardContent>
     </Card>
   );
