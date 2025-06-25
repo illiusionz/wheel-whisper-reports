@@ -3,6 +3,7 @@ import { useState } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { useRateLimitedAPI } from '@/hooks/useRateLimitedAPI';
 import { useToast } from '@/hooks/use-toast';
+import { validateTradingChatMessage, sanitizeSymbol, sanitizeStringInput } from '@/utils/validation';
 
 export interface ChatMessage {
   id: string;
@@ -19,9 +20,9 @@ export const useTradingChat = () => {
   const { toast } = useToast();
 
   const rateLimiter = useRateLimitedAPI<any>({
-    maxCallsPerMinute: 5, // More conservative for chat
-    cacheTTL: 0, // No caching for chat responses
-    debounceMs: 500 // Short debounce for chat
+    maxCallsPerMinute: 5,
+    cacheTTL: 0,
+    debounceMs: 500
   });
 
   const sendMessage = async (message: string, symbol?: string, context?: string) => {
@@ -37,25 +38,32 @@ export const useTradingChat = () => {
     setIsLoading(true);
     setError(null);
 
-    // Add user message immediately
-    const userMessage: ChatMessage = {
-      id: Date.now().toString(),
-      role: 'user',
-      content: message,
-      timestamp: new Date().toISOString(),
-      symbol
-    };
-
-    setMessages(prev => [...prev, userMessage]);
-
     try {
+      // Validate and sanitize input
+      const validatedMessage = validateTradingChatMessage({
+        message: sanitizeStringInput(message, 2000),
+        symbol: symbol ? sanitizeSymbol(symbol) : undefined,
+        context: context ? sanitizeStringInput(context, 1000) : undefined
+      });
+
+      // Add user message immediately
+      const userMessage: ChatMessage = {
+        id: Date.now().toString(),
+        role: 'user',
+        content: validatedMessage.message,
+        timestamp: new Date().toISOString(),
+        symbol: validatedMessage.symbol
+      };
+
+      setMessages(prev => [...prev, userMessage]);
+
       const cacheKey = `chat-${Date.now()}`;
       
       const result = await rateLimiter.debouncedCall(
         cacheKey,
         async () => {
           const { data: result, error: apiError } = await supabase.functions.invoke('trading-chat', {
-            body: { message, symbol, context }
+            body: validatedMessage
           });
 
           if (apiError) throw apiError;
@@ -69,7 +77,7 @@ export const useTradingChat = () => {
         role: 'assistant',
         content: result.message,
         timestamp: result.timestamp,
-        symbol
+        symbol: validatedMessage.symbol
       };
 
       setMessages(prev => [...prev, assistantMessage]);

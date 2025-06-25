@@ -8,13 +8,63 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
+// Input validation functions
+function validateTradingChatRequest(body: any) {
+  if (!body || typeof body !== 'object') {
+    throw new Error('Invalid request body');
+  }
+
+  const { message, symbol, context } = body;
+
+  // Validate message
+  if (!message || typeof message !== 'string') {
+    throw new Error('Message is required and must be a string');
+  }
+  
+  if (message.length === 0 || message.length > 2000) {
+    throw new Error('Message must be between 1 and 2000 characters');
+  }
+
+  // Validate symbol if provided
+  if (symbol !== undefined) {
+    if (typeof symbol !== 'string') {
+      throw new Error('Symbol must be a string');
+    }
+    
+    const sanitizedSymbol = symbol.toUpperCase().trim().replace(/[^A-Z]/g, '');
+    if (sanitizedSymbol.length === 0 || sanitizedSymbol.length > 10) {
+      throw new Error('Symbol must be 1-10 uppercase letters');
+    }
+  }
+
+  // Validate context if provided
+  if (context !== undefined) {
+    if (typeof context !== 'string') {
+      throw new Error('Context must be a string');
+    }
+    
+    if (context.length > 1000) {
+      throw new Error('Context must be 1000 characters or less');
+    }
+  }
+
+  return {
+    message: message.trim(),
+    symbol: symbol ? symbol.toUpperCase().trim().replace(/[^A-Z]/g, '') : undefined,
+    context: context ? context.trim() : undefined
+  };
+}
+
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
   }
 
   try {
-    const { message, symbol, context } = await req.json();
+    const requestBody = await req.json();
+    
+    // Validate and sanitize input
+    const validatedInput = validateTradingChatRequest(requestBody);
     
     const openAIApiKey = Deno.env.get('OPENAI_API_KEY');
     if (!openAIApiKey) {
@@ -70,7 +120,7 @@ serve(async (req) => {
         model: 'gpt-4o',
         messages: [
           { role: 'system', content: systemPrompt },
-          { role: 'user', content: `${message}${symbol ? ` (Context: analyzing ${symbol})` : ''}${context ? ` Additional context: ${context}` : ''}` }
+          { role: 'user', content: `${validatedInput.message}${validatedInput.symbol ? ` (Context: analyzing ${validatedInput.symbol})` : ''}${validatedInput.context ? ` Additional context: ${validatedInput.context}` : ''}` }
         ],
         tools: tools,
         tool_choice: "auto",
@@ -79,14 +129,18 @@ serve(async (req) => {
       }),
     });
 
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error(`OpenAI API error ${response.status}:`, errorText);
+      throw new Error(`OpenAI API error: ${response.status}`);
+    }
+
     const aiData = await response.json();
     
     // Handle function calls if present
     const assistantMessage = aiData.choices[0].message;
     if (assistantMessage.tool_calls) {
-      // Process function calls here
       console.log('Function calls requested:', assistantMessage.tool_calls);
-      // For now, return the message indicating functions would be called
       return new Response(JSON.stringify({
         message: assistantMessage.content || "I need to fetch current market data to provide accurate analysis.",
         functionCalls: assistantMessage.tool_calls,
@@ -105,7 +159,10 @@ serve(async (req) => {
 
   } catch (error) {
     console.error('Trading chat error:', error);
-    return new Response(JSON.stringify({ error: error.message }), {
+    return new Response(JSON.stringify({ 
+      error: error.message || 'Internal server error',
+      timestamp: new Date().toISOString()
+    }), {
       status: 500,
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });

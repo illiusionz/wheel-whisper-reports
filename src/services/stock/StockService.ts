@@ -1,9 +1,9 @@
-
 import { StockProvider, StockQuote, StockServiceConfig } from '@/types/stock';
 import { FinnhubProvider } from './providers/FinnhubProvider';
 import { AlphaVantageProvider } from './providers/AlphaVantageProvider';
 import { PolygonProvider } from './providers/PolygonProvider';
 import { MockProvider } from './providers/MockProvider';
+import { validateStockSymbol, validateStockQuote, sanitizeSymbol } from '@/utils/validation';
 
 export class StockService {
   private provider: StockProvider;
@@ -34,19 +34,27 @@ export class StockService {
   }
 
   async getQuote(symbol: string): Promise<StockQuote> {
+    // Validate and sanitize input
+    const sanitizedSymbol = sanitizeSymbol(symbol);
+    const validatedSymbol = validateStockSymbol(sanitizedSymbol);
+    
     try {
       if (!this.provider.isConfigured()) {
         throw new Error(`${this.provider.name} provider is not configured`);
       }
       
-      console.log(`Fetching quote for ${symbol} using ${this.provider.name}`);
-      return await this.provider.getQuote(symbol);
+      console.log(`Fetching quote for ${validatedSymbol} using ${this.provider.name}`);
+      const quote = await this.provider.getQuote(validatedSymbol);
+      
+      // Validate the response
+      return validateStockQuote(quote);
     } catch (error) {
       console.error(`Primary provider (${this.provider.name}) failed:`, error);
       
       if (this.fallbackProvider?.isConfigured()) {
         console.log(`Trying fallback provider: ${this.fallbackProvider.name}`);
-        return await this.fallbackProvider.getQuote(symbol);
+        const fallbackQuote = await this.fallbackProvider.getQuote(validatedSymbol);
+        return validateStockQuote(fallbackQuote);
       }
       
       throw error;
@@ -54,19 +62,29 @@ export class StockService {
   }
 
   async getMultipleQuotes(symbols: string[]): Promise<StockQuote[]> {
+    // Validate and sanitize all symbols
+    const validatedSymbols = symbols.map(symbol => {
+      const sanitized = sanitizeSymbol(symbol);
+      return validateStockSymbol(sanitized);
+    });
+    
     try {
       if (!this.provider.isConfigured()) {
         throw new Error(`${this.provider.name} provider is not configured`);
       }
       
-      console.log(`Fetching quotes for ${symbols.length} symbols using ${this.provider.name}`);
-      return await this.provider.getMultipleQuotes(symbols);
+      console.log(`Fetching quotes for ${validatedSymbols.length} symbols using ${this.provider.name}`);
+      const quotes = await this.provider.getMultipleQuotes(validatedSymbols);
+      
+      // Validate all responses
+      return quotes.map(quote => validateStockQuote(quote));
     } catch (error) {
       console.error(`Primary provider (${this.provider.name}) failed:`, error);
       
       if (this.fallbackProvider?.isConfigured()) {
         console.log(`Trying fallback provider: ${this.fallbackProvider.name}`);
-        return await this.fallbackProvider.getMultipleQuotes(symbols);
+        const fallbackQuotes = await this.fallbackProvider.getMultipleQuotes(validatedSymbols);
+        return fallbackQuotes.map(quote => validateStockQuote(quote));
       }
       
       throw error;
@@ -89,22 +107,28 @@ export class StockService {
 
   // Advanced Polygon-specific methods
   async getOptionsChain(symbol: string, expiration?: string, strikePrice?: number, contractType?: 'call' | 'put') {
+    const validatedSymbol = validateStockSymbol(sanitizeSymbol(symbol));
+    
     if (this.provider instanceof PolygonProvider) {
-      return await this.provider.getOptionsChain(symbol, expiration, strikePrice, contractType);
+      return await this.provider.getOptionsChain(validatedSymbol, expiration, strikePrice, contractType);
     }
     throw new Error('Options chain data requires Polygon provider');
   }
 
   async getHistoricalData(symbol: string, timespan: 'day' | 'week' | 'month' = 'day', from?: string, to?: string) {
+    const validatedSymbol = validateStockSymbol(sanitizeSymbol(symbol));
+    
     if (this.provider instanceof PolygonProvider) {
-      return await this.provider.getHistoricalData(symbol, timespan, from, to);
+      return await this.provider.getHistoricalData(validatedSymbol, timespan, from, to);
     }
     throw new Error('Historical data requires Polygon provider');
   }
 
   async getWheelStrategyData(symbol: string, targetStrike?: number) {
+    const validatedSymbol = validateStockSymbol(sanitizeSymbol(symbol));
+    
     if (this.provider instanceof PolygonProvider) {
-      return await this.provider.getWheelStrategyData(symbol, targetStrike);
+      return await this.provider.getWheelStrategyData(validatedSymbol, targetStrike);
     }
     throw new Error('Wheel strategy data requires Polygon provider');
   }

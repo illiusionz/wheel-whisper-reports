@@ -6,6 +6,7 @@ import { useToast } from '@/hooks/use-toast';
 import { getStockService } from '@/services/stock';
 import { StockQuote } from '@/types/stock';
 import { Stock, WatchlistItem } from './types';
+import { validateStockSymbol, validateStockQuote, sanitizeSymbol } from '@/utils/validation';
 
 export const useWatchlistDatabase = () => {
   const { user } = useAuth();
@@ -56,18 +57,25 @@ export const useWatchlistDatabase = () => {
     if (!user) return { success: false };
 
     try {
+      // Validate and sanitize symbol
+      const sanitizedSymbol = sanitizeSymbol(symbol);
+      const validatedSymbol = validateStockSymbol(sanitizedSymbol);
+      
       const stockService = getStockService();
-      const stockQuote = await stockService.getQuote(symbol);
+      const stockQuote = await stockService.getQuote(validatedSymbol);
+      
+      // Validate the stock quote response
+      const validatedQuote = validateStockQuote(stockQuote);
 
       const { data, error } = await supabase
         .from('watchlists')
         .insert({
           user_id: user.id,
-          symbol: stockQuote.symbol,
-          name: stockQuote.name,
-          price: stockQuote.price,
-          change_amount: stockQuote.change,
-          change_percent: stockQuote.changePercent,
+          symbol: validatedQuote.symbol,
+          name: validatedQuote.name,
+          price: validatedQuote.price,
+          change_amount: validatedQuote.change,
+          change_percent: validatedQuote.changePercent,
         })
         .select()
         .single();
@@ -76,7 +84,7 @@ export const useWatchlistDatabase = () => {
         if (error.code === '23505') {
           toast({
             title: "Stock Already Added",
-            description: `${symbol.toUpperCase()} is already in your watchlist`,
+            description: `${validatedSymbol} is already in your watchlist`,
             variant: "destructive",
           });
           return { success: false };
@@ -85,16 +93,16 @@ export const useWatchlistDatabase = () => {
       }
 
       const newStock: Stock = {
-        symbol: stockQuote.symbol,
-        name: stockQuote.name,
-        price: stockQuote.price,
-        change: stockQuote.change,
-        changePercent: stockQuote.changePercent,
+        symbol: validatedQuote.symbol,
+        name: validatedQuote.name,
+        price: validatedQuote.price,
+        change: validatedQuote.change,
+        changePercent: validatedQuote.changePercent,
       };
 
       toast({
         title: "Stock Added",
-        description: `${stockQuote.symbol} has been added to your watchlist`,
+        description: `${validatedQuote.symbol} has been added to your watchlist`,
       });
 
       return { success: true, stock: newStock };
@@ -113,17 +121,20 @@ export const useWatchlistDatabase = () => {
     if (!user) return false;
 
     try {
+      // Validate symbol before deletion
+      const validatedSymbol = validateStockSymbol(sanitizeSymbol(symbol));
+      
       const { error } = await supabase
         .from('watchlists')
         .delete()
         .eq('user_id', user.id)
-        .eq('symbol', symbol);
+        .eq('symbol', validatedSymbol);
 
       if (error) throw error;
 
       toast({
         title: "Stock Removed",
-        description: `${symbol} has been removed from your watchlist`,
+        description: `${validatedSymbol} has been removed from your watchlist`,
       });
 
       return true;
@@ -143,17 +154,20 @@ export const useWatchlistDatabase = () => {
 
     for (const quote of stockQuotes) {
       try {
+        // Validate each quote before updating
+        const validatedQuote = validateStockQuote(quote);
+        
         await supabase
           .from('watchlists')
           .update({
-            name: quote.name,
-            price: quote.price,
-            change_amount: quote.change,
-            change_percent: quote.changePercent,
+            name: validatedQuote.name,
+            price: validatedQuote.price,
+            change_amount: validatedQuote.change,
+            change_percent: validatedQuote.changePercent,
             updated_at: new Date().toISOString()
           })
           .eq('user_id', user.id)
-          .eq('symbol', quote.symbol);
+          .eq('symbol', validatedQuote.symbol);
       } catch (error) {
         console.error(`Failed to update ${quote.symbol} in database:`, error);
       }
