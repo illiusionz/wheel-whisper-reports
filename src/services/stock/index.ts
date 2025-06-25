@@ -1,5 +1,5 @@
 
-import { StockService } from './StockService';
+import { StockServiceManager } from './StockServiceManager';
 import { StockServiceConfig } from '@/types/stock';
 
 // Load saved configuration from localStorage
@@ -22,20 +22,20 @@ const getSavedConfig = (): Partial<StockServiceConfig> => {
 
 // Default configuration with saved settings
 const defaultConfig: StockServiceConfig = {
-  provider: 'mock', // Will be overridden by saved config if available
+  provider: 'mock',
   fallbackProvider: 'mock',
   ...getSavedConfig()
 };
 
 // Singleton instance
-let stockServiceInstance: StockService | null = null;
+let stockServiceInstance: StockServiceManager | null = null;
 
-export function createStockService(config?: Partial<StockServiceConfig>): StockService {
+export function createStockService(config?: Partial<StockServiceConfig>): StockServiceManager {
   const finalConfig = { ...defaultConfig, ...config };
-  return new StockService(finalConfig);
+  return new StockServiceManager(finalConfig);
 }
 
-export function getStockService(): StockService {
+export function getStockService(): StockServiceManager {
   if (!stockServiceInstance) {
     stockServiceInstance = createStockService();
   }
@@ -49,4 +49,5 @@ export function setStockServiceConfig(config: Partial<StockServiceConfig>) {
 
 // Export everything for easy access
 export * from './StockService';
+export * from './StockServiceManager';
 export * from '@/types/stock';

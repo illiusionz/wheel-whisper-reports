@@ -1,5 +1,5 @@
 
-import { useState, useCallback } from 'react';
+import { useCallback } from 'react';
 import { useRealTimeData } from '@/hooks/useRealTimeData';
 import { StockQuote } from '@/types/stock';
 import { Stock } from './types';
@@ -39,9 +39,9 @@ export const useWatchlistRealTime = ({
     startAutoRefresh,
     stopAutoRefresh
   } = useRealTimeData({
-    symbols: watchlistSymbols,
-    refreshInterval: 15000, // 15 seconds for watchlist
-    enableAutoRefresh: true,
+    symbols: watchlistSymbols.length > 0 ? watchlistSymbols : undefined,
+    refreshInterval: 30000, // 30 seconds for watchlist (increased from 15s to be more conservative)
+    enableAutoRefresh: watchlistSymbols.length > 0,
     onDataUpdate: (data) => {
       if (Array.isArray(data)) {
         updateWatchlistWithRealTimeData(data);
