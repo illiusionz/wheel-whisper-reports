@@ -17,7 +17,7 @@ function validateHybridAIRequest(body: any) {
   console.log('🔍 VALIDATING REQUEST BODY:', JSON.stringify(body, null, 2))
   
   if (!body || typeof body !== 'object') {
-    throw new Error('Invalid request body');
+    throw new Error('Invalid request body - must be a valid JSON object');
   }
 
   const { analysisType, symbol, data, requiresRealTime, forceModel, maxTokens, temperature } = body;
@@ -25,7 +25,7 @@ function validateHybridAIRequest(body: any) {
   // Validate analysis type
   const validAnalysisTypes = ['technical', 'options', 'risk', 'sentiment', 'news', 'general'];
   if (!analysisType || !validAnalysisTypes.includes(analysisType)) {
-    throw new Error(`Invalid analysis type. Must be one of: ${validAnalysisTypes.join(', ')}`);
+    throw new Error(`Invalid analysis type "${analysisType}". Must be one of: ${validAnalysisTypes.join(', ')}`);
   }
 
   // Validate symbol
@@ -41,7 +41,7 @@ function validateHybridAIRequest(body: any) {
   // Validate force model if provided
   const validModels = ['claude', 'openai', 'perplexity'];
   if (forceModel && !validModels.includes(forceModel)) {
-    throw new Error(`Invalid force model. Must be one of: ${validModels.join(', ')}`);
+    throw new Error(`Invalid force model "${forceModel}". Must be one of: ${validModels.join(', ')}`);
   }
 
   // Validate max tokens
@@ -106,19 +106,30 @@ serve(async (req) => {
 
     console.log('📝 Processing POST request...')
 
-    // Parse request body with better error handling
+    // Parse request body with timeout protection
     let requestBody;
     try {
-      const bodyText = await req.text()
-      console.log('📄 Raw request body:', bodyText)
-      requestBody = JSON.parse(bodyText)
-      console.log('✅ Request body parsed successfully')
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
+      
+      const bodyText = await req.text();
+      clearTimeout(timeoutId);
+      
+      console.log('📄 Raw request body length:', bodyText.length);
+      
+      if (!bodyText || bodyText.trim() === '') {
+        throw new Error('Request body is empty');
+      }
+      
+      requestBody = JSON.parse(bodyText);
+      console.log('✅ Request body parsed successfully');
     } catch (parseError) {
-      console.error('❌ JSON parse error:', parseError)
+      console.error('❌ JSON parse error:', parseError);
       return new Response(
         JSON.stringify({ 
           error: 'Invalid JSON in request body',
-          details: parseError.message 
+          details: parseError.message,
+          received: typeof parseError === 'object' ? parseError.name : 'Unknown error'
         }),
         {
           status: 400,
@@ -135,9 +146,9 @@ serve(async (req) => {
     let validatedRequest;
     try {
       validatedRequest = validateHybridAIRequest(requestBody);
-      console.log('✅ Request validation successful')
+      console.log('✅ Request validation successful');
     } catch (validationError) {
-      console.error('❌ Validation error:', validationError.message)
+      console.error('❌ Validation error:', validationError.message);
       return new Response(
         JSON.stringify({ 
           error: 'Request validation failed',
@@ -183,22 +194,29 @@ serve(async (req) => {
       )
     }
 
-    // Get API key for selected model
+    // Get API key for selected model with enhanced error handling
     console.log(`🔑 Getting API key for ${selectedModel}...`)
     let apiKey, keySource;
     try {
       const keyResult = getAPIKey(selectedModel)
       apiKey = keyResult.key
       keySource = keyResult.source
-      console.log(`✅ Using ${selectedModel} API key from ${keySource}`)
+      
+      // Validate API key format
+      if (selectedModel === 'claude' && !apiKey.startsWith('sk-ant-')) {
+        throw new Error(`Claude API key must start with 'sk-ant-' but got key starting with '${apiKey.substring(0, 7)}...'`);
+      }
+      
+      console.log(`✅ Using ${selectedModel} API key from ${keySource} (length: ${apiKey.length})`)
     } catch (keyError) {
       console.error(`❌ API key error for ${selectedModel}:`, keyError.message)
       return new Response(
         JSON.stringify({ 
-          error: `${selectedModel.toUpperCase()} API key not configured`,
-          details: `Please add your ${selectedModel.toUpperCase()} API key to Supabase Edge Function Secrets. Go to Project Settings > Edge Functions > Secrets and add ${keySource}.`,
+          error: `${selectedModel.toUpperCase()} API key not configured or invalid`,
+          details: `Please add a valid ${selectedModel.toUpperCase()} API key to Supabase Edge Function Secrets. Go to Project Settings > Edge Functions > Secrets and add ${keySource}.`,
           model: selectedModel,
-          keyName: keySource
+          keyName: keySource,
+          suggestion: selectedModel === 'claude' ? 'API key must start with sk-ant-' : 'Please verify your API key format'
         }),
         {
           status: 500,
@@ -216,6 +234,11 @@ serve(async (req) => {
     try {
       contextPrompt = buildContextPrompt(validatedRequest.analysisType, validatedRequest.symbol, validatedRequest.data)
       console.log(`✅ Prompt built (${contextPrompt.length} characters)`)
+      
+      if (contextPrompt.length > 10000) {
+        console.log('⚠️ Large prompt detected, truncating...')
+        contextPrompt = contextPrompt.substring(0, 10000) + '...'
+      }
     } catch (promptError) {
       console.error('❌ Prompt building error:', promptError.message)
       return new Response(
@@ -236,35 +259,57 @@ serve(async (req) => {
     let analysis = ''
     let confidence = 0.7
     
-    // Call the appropriate AI service with comprehensive error handling
+    // Call the appropriate AI service with timeout protection
     console.log(`🚀 Calling ${selectedModel} API...`)
     try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => {
+        console.log(`⏰ ${selectedModel} API call timeout after 30 seconds`);
+        controller.abort();
+      }, 30000); // 30 second timeout
+
+      let result;
       if (selectedModel === 'perplexity') {
-        const result = await callPerplexityAPI(apiKey, contextPrompt, validatedRequest.maxTokens)
-        analysis = result.content
-        confidence = result.confidence
+        result = await callPerplexityAPI(apiKey, contextPrompt, validatedRequest.maxTokens)
       } else if (selectedModel === 'openai') {
-        const result = await callOpenAIAPI(apiKey, contextPrompt, validatedRequest.maxTokens)
-        analysis = result.content
-        confidence = result.confidence
+        result = await callOpenAIAPI(apiKey, contextPrompt, validatedRequest.maxTokens)
       } else {
         console.log('🧠 Calling Claude API...')
-        const result = await callClaudeAPI(apiKey, contextPrompt, validatedRequest.maxTokens)
-        analysis = result.content
-        confidence = result.confidence
+        result = await callClaudeAPI(apiKey, contextPrompt, validatedRequest.maxTokens)
         console.log('✅ Claude API call completed successfully')
       }
-      console.log(`✅ ${selectedModel} analysis completed (${analysis.length} characters)`)
+      
+      clearTimeout(timeoutId);
+      
+      if (!result || typeof result !== 'object') {
+        throw new Error('Invalid response from AI service - no result object');
+      }
+      
+      analysis = result.content || '';
+      confidence = result.confidence || 0.7;
+      
+      console.log(`✅ ${selectedModel} analysis completed (${analysis.length} characters, confidence: ${confidence})`);
     } catch (aiError) {
-      console.error(`❌ ${selectedModel} API call failed:`)
+      console.error(`❌ ${selectedModel} AI service error:`)
       console.error('Error name:', aiError.name)
       console.error('Error message:', aiError.message)
       console.error('Error stack:', aiError.stack)
       
-      // Enhanced error message for Claude API key issues
-      let errorMessage = aiError.message;
-      if (selectedModel === 'claude' && aiError.message.includes('authentication failed')) {
-        errorMessage = 'Claude API key is invalid or expired. Please update your ANTHROPIC_API_KEY in Supabase Edge Function Secrets with a valid Anthropic API key.';
+      // Enhanced error messages based on error type
+      let errorMessage = aiError.message || 'Unknown AI service error';
+      let suggestion = 'Please check your API configuration';
+      
+      if (selectedModel === 'claude') {
+        if (aiError.message?.includes('authentication') || aiError.message?.includes('401')) {
+          errorMessage = 'Claude API key is invalid or expired. Please update your ANTHROPIC_API_KEY in Supabase Edge Function Secrets with a valid Anthropic API key.';
+          suggestion = 'Get a valid API key from https://console.anthropic.com/';
+        } else if (aiError.message?.includes('rate limit') || aiError.message?.includes('429')) {
+          errorMessage = 'Claude API rate limit exceeded. Please try again in a few minutes.';
+          suggestion = 'Wait before making another request';
+        } else if (aiError.name === 'AbortError') {
+          errorMessage = 'Claude API request timed out after 30 seconds.';
+          suggestion = 'Try again with a simpler request';
+        }
       }
       
       return new Response(
@@ -272,8 +317,8 @@ serve(async (req) => {
           error: `Failed to get analysis from ${selectedModel}`,
           details: errorMessage,
           model: selectedModel,
-          errorType: aiError.name,
-          suggestion: selectedModel === 'claude' ? 'Please verify your ANTHROPIC_API_KEY is correct and active' : 'Please check your API key configuration'
+          errorType: aiError.name || 'Unknown',
+          suggestion: suggestion
         }),
         {
           status: 500,
@@ -285,14 +330,15 @@ serve(async (req) => {
       )
     }
 
-    // Validate response
+    // Validate AI response
     console.log('🔍 Validating AI response...')
-    if (!analysis || analysis.trim().length === 0) {
-      console.error('❌ Empty analysis received from AI model')
+    if (!analysis || typeof analysis !== 'string' || analysis.trim().length === 0) {
+      console.error('❌ Empty or invalid analysis received from AI model')
       return new Response(
         JSON.stringify({ 
-          error: 'Empty response from AI model',
-          model: selectedModel
+          error: 'Empty or invalid response from AI model',
+          model: selectedModel,
+          details: 'The AI service returned an empty or invalid response'
         }),
         {
           status: 500,
@@ -305,15 +351,16 @@ serve(async (req) => {
     }
 
     const response = {
-      content: analysis,
+      content: analysis.trim(),
       model: selectedModel,
-      confidence: confidence,
+      confidence: Math.max(0, Math.min(1, confidence)), // Ensure confidence is between 0 and 1
       timestamp: new Date().toISOString(),
       metadata: {
         analysisType: validatedRequest.analysisType,
         symbol: validatedRequest.symbol,
         tokenCount: analysis.length,
-        modelUsed: selectedModel
+        modelUsed: selectedModel,
+        processingTime: Date.now()
       }
     }
 
@@ -336,17 +383,17 @@ serve(async (req) => {
 
   } catch (error) {
     console.error('💥 CRITICAL ERROR in hybrid-ai-analysis function:')
-    console.error('   Error type:', error.constructor.name)
-    console.error('   Error message:', error.message)
-    console.error('   Error stack:', error.stack)
+    console.error('   Error type:', error?.constructor?.name || 'Unknown')
+    console.error('   Error message:', error?.message || 'No message')
+    console.error('   Error stack:', error?.stack || 'No stack trace')
     console.error('⏰ Error occurred at:', new Date().toISOString())
     
     return new Response(
       JSON.stringify({ 
-        error: error.message || 'Internal server error',
-        details: 'Critical failure in AI analysis function',
+        error: 'Critical failure in AI analysis function',
+        details: error?.message || 'Unknown internal server error',
         timestamp: new Date().toISOString(),
-        errorType: error.constructor.name
+        errorType: error?.constructor?.name || 'Unknown'
       }),
       { 
         status: 500,

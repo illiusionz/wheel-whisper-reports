@@ -6,10 +6,27 @@ export interface AIResponse {
 
 export async function callClaudeAPI(apiKey: string, prompt: string, maxTokens: number): Promise<AIResponse> {
   console.log('=== CLAUDE API CALL START ===')
-  console.log('API Key length:', apiKey.length)
-  console.log('API Key starts with sk-ant-:', apiKey.startsWith('sk-ant-'))
-  console.log('Prompt length:', prompt.length)
+  console.log('API Key length:', apiKey?.length || 0)
+  console.log('API Key format valid:', apiKey?.startsWith('sk-ant-') || false)
+  console.log('Prompt length:', prompt?.length || 0)
   console.log('Max tokens requested:', maxTokens)
+  
+  // Validate inputs
+  if (!apiKey || typeof apiKey !== 'string') {
+    throw new Error('Claude API key is required and must be a string');
+  }
+  
+  if (!apiKey.startsWith('sk-ant-')) {
+    throw new Error('Invalid Claude API key format - must start with sk-ant-');
+  }
+  
+  if (!prompt || typeof prompt !== 'string' || prompt.trim().length === 0) {
+    throw new Error('Prompt is required and must be a non-empty string');
+  }
+  
+  if (!maxTokens || maxTokens <= 0 || maxTokens > 4000) {
+    throw new Error('Max tokens must be between 1 and 4000');
+  }
   
   const requestBody = {
     model: 'claude-3-5-sonnet-20241022',
@@ -18,14 +35,22 @@ export async function callClaudeAPI(apiKey: string, prompt: string, maxTokens: n
     messages: [
       {
         role: 'user',
-        content: prompt
+        content: prompt.trim()
       }
     ]
   }
   
   console.log('Making request to Claude API...')
+  console.log('Request model:', requestBody.model)
+  console.log('Request max_tokens:', requestBody.max_tokens)
   
   try {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => {
+      console.log('Claude API request timeout after 25 seconds');
+      controller.abort();
+    }, 25000); // 25 second timeout
+    
     const response = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
       headers: {
@@ -33,49 +58,85 @@ export async function callClaudeAPI(apiKey: string, prompt: string, maxTokens: n
         'Content-Type': 'application/json',
         'anthropic-version': '2023-06-01'
       },
-      body: JSON.stringify(requestBody)
-    })
+      body: JSON.stringify(requestBody),
+      signal: controller.signal
+    });
+
+    clearTimeout(timeoutId);
 
     console.log('=== CLAUDE API RESPONSE ===')
     console.log('Response status:', response.status)
     console.log('Response ok:', response.ok)
+    console.log('Response headers:', Object.fromEntries(response.headers.entries()))
     
     if (!response.ok) {
       const errorText = await response.text()
       console.error('=== CLAUDE API ERROR DETAILS ===')
       console.error(`Status: ${response.status}`)
+      console.error(`Status Text: ${response.statusText}`)
       console.error(`Error Response Body: ${errorText}`)
       
       if (response.status === 401) {
         throw new Error('Claude API authentication failed. The API key is invalid or expired. Please verify your ANTHROPIC_API_KEY in Supabase secrets.')
       } else if (response.status === 400) {
-        throw new Error(`Claude API request error: ${errorText}`)
+        let errorMessage = 'Claude API request error';
+        try {
+          const errorJson = JSON.parse(errorText);
+          errorMessage = errorJson.error?.message || errorText;
+        } catch {
+          errorMessage = errorText;
+        }
+        throw new Error(`Claude API request error: ${errorMessage}`)
       } else if (response.status === 429) {
         throw new Error('Claude API rate limit exceeded. Please try again later.')
+      } else if (response.status >= 500) {
+        throw new Error(`Claude API server error (${response.status}): Service temporarily unavailable`)
       } else {
         throw new Error(`Claude API error (${response.status}): ${errorText}`)
       }
     }
 
     const data = await response.json()
+    console.log('Response data structure:', {
+      hasContent: !!data.content,
+      contentLength: data.content?.length || 0,
+      contentType: Array.isArray(data.content) ? 'array' : typeof data.content
+    })
+    
     const content = data.content?.[0]?.text || ''
     
-    if (!content) {
+    if (!content || typeof content !== 'string') {
+      console.error('=== INVALID CONTENT FROM CLAUDE ===')
+      console.error('Content received:', data.content)
+      throw new Error('Claude API returned invalid or empty content')
+    }
+    
+    if (content.trim().length === 0) {
       console.error('=== EMPTY CONTENT FROM CLAUDE ===')
-      throw new Error('Claude API returned empty content')
+      throw new Error('Claude API returned empty analysis content')
     }
     
     console.log('✅ Claude analysis completed successfully')
     console.log('Content length:', content.length)
+    console.log('Content preview:', content.substring(0, 100) + '...')
     
     return {
-      content,
+      content: content.trim(),
       confidence: 0.85
     }
     
   } catch (error) {
     console.error('=== ERROR IN CLAUDE API CALL ===')
-    console.error('Error message:', error.message)
+    console.error('Error type:', error?.constructor?.name || 'Unknown')
+    console.error('Error message:', error?.message || 'No message')
+    console.error('Error stack:', error?.stack || 'No stack')
+    
+    // Re-throw with more context for timeout errors
+    if (error.name === 'AbortError') {
+      throw new Error('Claude API request timed out. Please try again with a shorter prompt.')
+    }
+    
+    // Re-throw other errors as-is to preserve error messages
     throw error
   }
 }
