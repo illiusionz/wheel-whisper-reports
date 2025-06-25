@@ -1,12 +1,12 @@
-
 import React, { useState, useCallback, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { Brain, Loader2, Zap, Clock, Sparkles, Settings, ChevronDown, RefreshCw, AlertCircle, CheckCircle, WifiOff } from 'lucide-react';
+import { Brain, Loader2, Zap, Clock, Sparkles, Settings, ChevronDown, RefreshCw, AlertCircle, CheckCircle, WifiOff, Database } from 'lucide-react';
 import { useHybridAI } from '@/hooks/useHybridAI';
+import { enrichDataForAnalysis, validateDataCompleteness, type EnrichedAnalysisData } from '@/utils/dataEnrichment';
 
 interface HybridAIInsightCardProps {
   symbol: string;
@@ -38,6 +38,7 @@ const HybridAIInsightCard: React.FC<HybridAIInsightCardProps> = ({
   const [showModelSelector, setShowModelSelector] = useState(false);
   const [debugInfo, setDebugInfo] = useState<any>(null);
   const [retryCount, setRetryCount] = useState(0);
+  const [dataValidation, setDataValidation] = useState<any>(null);
 
   const handleAnalyze = useCallback(async () => {
     if (isLoading) return;
@@ -48,9 +49,21 @@ const HybridAIInsightCard: React.FC<HybridAIInsightCardProps> = ({
       analysisType,
       selectedModel,
       retryCount,
+      rawData: data,
       timestamp: new Date().toISOString()
     });
     
+    // Enrich data for better analysis
+    const enrichedData = enrichDataForAnalysis(data, analysisType);
+    const validation = validateDataCompleteness(enrichedData, analysisType);
+    
+    console.log(`📊 [${requestId}] Data enrichment results:`, {
+      enrichedData,
+      validation,
+      dataCompleteness: validation.isComplete ? 'complete' : 'partial'
+    });
+    
+    setDataValidation(validation);
     setDebugInfo({
       requestId,
       startTime: new Date().toISOString(),
@@ -58,12 +71,19 @@ const HybridAIInsightCard: React.FC<HybridAIInsightCardProps> = ({
       analysisType,
       selectedModel,
       retryCount,
+      dataEnrichment: {
+        originalFields: Object.keys(data || {}),
+        enrichedFields: Object.keys(enrichedData),
+        completeness: validation.isComplete,
+        missingFields: validation.missingFields,
+        warnings: validation.warnings
+      },
       status: 'starting'
     });
     
     try {
       const forceModel = selectedModel === 'auto' ? undefined : selectedModel;
-      const result = await getHybridAnalysis(analysisType, symbol, data, requiresRealTime, forceModel);
+      const result = await getHybridAnalysis(analysisType, symbol, enrichedData, requiresRealTime, forceModel);
       
       console.log(`📊 [${requestId}] HybridAIInsightCard: Analysis result:`, {
         hasResult: !!result,
@@ -85,7 +105,7 @@ const HybridAIInsightCard: React.FC<HybridAIInsightCardProps> = ({
       if (result) {
         setAnalysis(result);
         setHasAnalyzed(true);
-        setRetryCount(0); // Reset retry count on success
+        setRetryCount(0);
         console.log(`✅ [${requestId}] HybridAIInsightCard: Analysis completed successfully`);
       } else {
         setRetryCount(prev => prev + 1);
@@ -115,6 +135,7 @@ const HybridAIInsightCard: React.FC<HybridAIInsightCardProps> = ({
     setHasAnalyzed(false);
     setDebugInfo(null);
     setRetryCount(0);
+    setDataValidation(null);
   }, [symbol]);
 
   const formatAnalysisContent = useCallback((content: string) => {
@@ -210,6 +231,14 @@ const HybridAIInsightCard: React.FC<HybridAIInsightCardProps> = ({
                   <Badge variant="outline" className={`text-xs border-slate-600 ${modelInfo.bgColor} ${modelInfo.color}`}>
                     <modelInfo.icon className="h-3 w-3 mr-1" />
                     {modelInfo.name}
+                  </Badge>
+                )}
+                {dataValidation && (
+                  <Badge variant="outline" className={`text-xs border-slate-600 ${
+                    dataValidation.isComplete ? 'bg-green-500/10 text-green-400' : 'bg-yellow-500/10 text-yellow-400'
+                  }`}>
+                    <Database className="h-3 w-3 mr-1" />
+                    {dataValidation.isComplete ? 'Complete Data' : 'Partial Data'}
                   </Badge>
                 )}
                 {!isServiceAvailable && (
@@ -309,11 +338,25 @@ const HybridAIInsightCard: React.FC<HybridAIInsightCardProps> = ({
               <div>Model: <span className="text-slate-200">{selectedModel}</span></div>
               <div>Symbol: <span className="text-slate-200">{debugInfo.symbol}</span></div>
               <div>Request ID: <span className="text-slate-200 font-mono text-xs">{debugInfo.requestId?.substring(0, 8)}...</span></div>
+              {debugInfo.dataEnrichment && (
+                <div className="mt-2 pt-2 border-t border-slate-700/50">
+                  <div>Data Quality: <span className="text-slate-200">{debugInfo.dataEnrichment.completeness ? 'Complete' : 'Partial'}</span></div>
+                  <div>Original Fields: <span className="text-slate-200">{debugInfo.dataEnrichment.originalFields?.length || 0}</span></div>
+                  <div>Enriched Fields: <span className="text-slate-200">{debugInfo.dataEnrichment.enrichedFields?.length || 0}</span></div>
+                  {debugInfo.dataEnrichment.warnings?.length > 0 && (
+                    <div>Warnings: <span className="text-yellow-300">{debugInfo.dataEnrichment.warnings.join(', ')}</span></div>
+                  )}
+                </div>
+              )}
               {debugInfo.error && <div>Error: <span className="text-red-300">{debugInfo.error}</span></div>}
               {circuitBreakerStats && (
                 <div className="mt-2 pt-2 border-t border-slate-700/50">
-                  <div>Circuit Breaker: <span className="text-slate-200">{circuitBreakerStats.state}</span></div>
-                  <div>Failures: <span className="text-slate-200">{circuitBreakerStats.failures}</span></div>
+                  <div>Circuit Breaker: <span className="text-slate-200">{circuitBreakerStats.state || 'unknown'}</span></div>
+                  <div>Total Requests: <span className="text-slate-200">{circuitBreakerStats.totalRequests || 0}</span></div>
+                  <div>Success Rate: <span className="text-slate-200">
+                    {circuitBreakerStats.totalRequests ? 
+                      Math.round((circuitBreakerStats.successfulRequests / circuitBreakerStats.totalRequests) * 100) : 0}%
+                  </span></div>
                 </div>
               )}
             </div>
@@ -335,6 +378,11 @@ const HybridAIInsightCard: React.FC<HybridAIInsightCardProps> = ({
                     : `Analysis will be performed using ${selectedModel.charAt(0).toUpperCase() + selectedModel.slice(1)}`
                   }
                 </p>
+                {dataValidation && !dataValidation.isComplete && (
+                  <p className="text-xs text-yellow-400 max-w-xs mx-auto">
+                    Some data is missing but analysis can still provide valuable insights.
+                  </p>
+                )}
                 {!isServiceAvailable && (
                   <p className="text-xs text-red-400 max-w-xs mx-auto">
                     Service temporarily unavailable. Please try again in a moment.
