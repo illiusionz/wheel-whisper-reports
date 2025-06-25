@@ -37,16 +37,17 @@ export const dateSchema = z.string()
   .datetime("Invalid date format")
   .or(z.date().transform(d => d.toISOString()));
 
-// Stock quote validation schema
+// Stock quote validation schema - matching StockQuote interface exactly
 export const stockQuoteSchema = z.object({
   symbol: stockSymbolSchema,
   name: z.string().min(1, "Name is required").max(200, "Name too long"),
   price: priceSchema,
   change: z.number().finite("Change must be a valid number"),
   changePercent: percentageSchema,
+  lastUpdated: dateSchema,
+  // Optional properties that match the interface
   volume: volumeSchema.optional(),
   marketCap: marketCapSchema.optional(),
-  lastUpdated: dateSchema,
   dayHigh: priceSchema.optional(),
   dayLow: priceSchema.optional(),
   yearHigh: priceSchema.optional(),
@@ -118,9 +119,28 @@ export function validateStockSymbol(symbol: string): string {
   }
 }
 
-export function validateStockQuote(quote: any) {
+export function validateStockQuote(quote: any): import('@/types/stock').StockQuote {
   try {
-    return stockQuoteSchema.parse(quote);
+    const validated = stockQuoteSchema.parse(quote);
+    // Ensure we return the exact StockQuote type
+    return {
+      symbol: validated.symbol,
+      name: validated.name,
+      price: validated.price,
+      change: validated.change,
+      changePercent: validated.changePercent,
+      lastUpdated: validated.lastUpdated,
+      volume: validated.volume,
+      marketCap: validated.marketCap,
+      dayHigh: validated.dayHigh,
+      dayLow: validated.dayLow,
+      yearHigh: validated.yearHigh,
+      yearLow: validated.yearLow,
+      averageVolume: validated.averageVolume,
+      beta: validated.beta,
+      peRatio: validated.peRatio,
+      dividendYield: validated.dividendYield,
+    };
   } catch (error) {
     console.error('Stock quote validation failed:', error);
     throw new Error('Invalid stock quote data');
