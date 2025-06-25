@@ -14,6 +14,8 @@ const corsHeaders = {
 
 // Input validation functions
 function validateHybridAIRequest(body: any) {
+  console.log('🔍 VALIDATING REQUEST BODY:', JSON.stringify(body, null, 2))
+  
   if (!body || typeof body !== 'object') {
     throw new Error('Invalid request body');
   }
@@ -52,6 +54,7 @@ function validateHybridAIRequest(body: any) {
     ? temperature
     : 0.3;
 
+  console.log('✅ REQUEST VALIDATION SUCCESSFUL')
   return {
     analysisType,
     symbol: sanitizedSymbol,
@@ -67,20 +70,15 @@ console.log('🚀 HYBRID AI ANALYSIS FUNCTION INITIALIZING...')
 console.log('📊 Function startup time:', new Date().toISOString())
 
 serve(async (req) => {
-  // Add startup logging to verify function is running
-  console.log('🔥 FUNCTION CALLED - ALIVE AND RESPONDING!')
-  console.log('⏰ Request received at:', new Date().toISOString())
-  console.log('🌐 Request method:', req.method)
-  console.log('📍 Request URL:', req.url)
-  console.log('🔧 User-Agent:', req.headers.get('user-agent'))
-  console.log('🔑 Authorization present:', req.headers.has('authorization'))
-  console.log('📦 Content-Type:', req.headers.get('content-type'))
-  console.log('🏠 Origin:', req.headers.get('origin'))
+  console.log('🔥 FUNCTION CALLED - REQUEST RECEIVED!')
+  console.log('⏰ Request time:', new Date().toISOString())
+  console.log('🌐 Method:', req.method)
+  console.log('📍 URL:', req.url)
 
   try {
-    // Handle CORS preflight requests first
+    // Handle CORS preflight requests
     if (req.method === 'OPTIONS') {
-      console.log('✅ Handling CORS preflight request')
+      console.log('✅ CORS preflight - returning headers')
       return new Response('ok', { 
         headers: corsHeaders,
         status: 200 
@@ -108,15 +106,15 @@ serve(async (req) => {
 
     console.log('📝 Processing POST request...')
 
+    // Parse request body with better error handling
     let requestBody;
     try {
-      requestBody = await req.json()
+      const bodyText = await req.text()
+      console.log('📄 Raw request body:', bodyText)
+      requestBody = JSON.parse(bodyText)
       console.log('✅ Request body parsed successfully')
-      console.log('📋 Request payload keys:', Object.keys(requestBody))
-      console.log('🎯 Analysis type:', requestBody.analysisType)
-      console.log('💼 Symbol:', requestBody.symbol)
     } catch (parseError) {
-      console.error('❌ Failed to parse request body:', parseError)
+      console.error('❌ JSON parse error:', parseError)
       return new Response(
         JSON.stringify({ 
           error: 'Invalid JSON in request body',
@@ -134,8 +132,26 @@ serve(async (req) => {
     
     // Validate and sanitize input
     console.log('🔎 Validating request...')
-    const validatedRequest = validateHybridAIRequest(requestBody);
-    console.log('✅ Request validation successful')
+    let validatedRequest;
+    try {
+      validatedRequest = validateHybridAIRequest(requestBody);
+      console.log('✅ Request validation successful')
+    } catch (validationError) {
+      console.error('❌ Validation error:', validationError.message)
+      return new Response(
+        JSON.stringify({ 
+          error: 'Request validation failed',
+          details: validationError.message 
+        }),
+        {
+          status: 400,
+          headers: { 
+            ...corsHeaders, 
+            'Content-Type': 'application/json' 
+          }
+        }
+      )
+    }
     
     console.log(`🎯 Analysis Configuration:`)
     console.log(`   Type: ${validatedRequest.analysisType}`)
@@ -146,18 +162,41 @@ serve(async (req) => {
     console.log(`   Real Time: ${validatedRequest.requiresRealTime}`)
     
     // Determine the best model for the analysis type
-    const selectedModel = selectOptimalModel(validatedRequest.analysisType, validatedRequest.forceModel)
-    console.log(`🤖 Selected AI model: ${selectedModel}`)
+    let selectedModel;
+    try {
+      selectedModel = selectOptimalModel(validatedRequest.analysisType, validatedRequest.forceModel)
+      console.log(`🤖 Selected AI model: ${selectedModel}`)
+    } catch (modelError) {
+      console.error('❌ Model selection error:', modelError.message)
+      return new Response(
+        JSON.stringify({ 
+          error: 'Model selection failed',
+          details: modelError.message 
+        }),
+        {
+          status: 500,
+          headers: { 
+            ...corsHeaders, 
+            'Content-Type': 'application/json' 
+          }
+        }
+      )
+    }
 
     // Get API key for selected model
     console.log(`🔑 Getting API key for ${selectedModel}...`)
-    const { key: apiKey, source: keySource } = getAPIKey(selectedModel)
-    if (!apiKey) {
-      console.error(`❌ API key not found for ${selectedModel}`)
+    let apiKey, keySource;
+    try {
+      const keyResult = getAPIKey(selectedModel)
+      apiKey = keyResult.key
+      keySource = keyResult.source
+      console.log(`✅ Using ${selectedModel} API key from ${keySource}`)
+    } catch (keyError) {
+      console.error(`❌ API key error for ${selectedModel}:`, keyError.message)
       return new Response(
         JSON.stringify({ 
           error: `${selectedModel.toUpperCase()} API key not configured`,
-          details: `Please add ${keySource} to your Supabase Edge Function secrets`,
+          details: keyError.message,
           model: selectedModel
         }),
         {
@@ -169,17 +208,34 @@ serve(async (req) => {
         }
       )
     }
-    console.log(`✅ Using ${selectedModel} API key from ${keySource}`)
 
     // Build context-aware prompt
     console.log('📝 Building analysis prompt...')
-    const contextPrompt = buildContextPrompt(validatedRequest.analysisType, validatedRequest.symbol, validatedRequest.data)
-    console.log(`✅ Prompt built (${contextPrompt.length} characters)`)
+    let contextPrompt;
+    try {
+      contextPrompt = buildContextPrompt(validatedRequest.analysisType, validatedRequest.symbol, validatedRequest.data)
+      console.log(`✅ Prompt built (${contextPrompt.length} characters)`)
+    } catch (promptError) {
+      console.error('❌ Prompt building error:', promptError.message)
+      return new Response(
+        JSON.stringify({ 
+          error: 'Failed to build analysis prompt',
+          details: promptError.message 
+        }),
+        {
+          status: 500,
+          headers: { 
+            ...corsHeaders, 
+            'Content-Type': 'application/json' 
+          }
+        }
+      )
+    }
     
     let analysis = ''
     let confidence = 0.7
     
-    // Call the appropriate AI service
+    // Call the appropriate AI service with comprehensive error handling
     console.log(`🚀 Calling ${selectedModel} API...`)
     try {
       if (selectedModel === 'perplexity') {
@@ -191,18 +247,24 @@ serve(async (req) => {
         analysis = result.content
         confidence = result.confidence
       } else {
+        console.log('🧠 Calling Claude API...')
         const result = await callClaudeAPI(apiKey, contextPrompt, validatedRequest.maxTokens)
         analysis = result.content
         confidence = result.confidence
+        console.log('✅ Claude API call completed successfully')
       }
       console.log(`✅ ${selectedModel} analysis completed (${analysis.length} characters)`)
     } catch (aiError) {
-      console.error(`❌ ${selectedModel} API call failed:`, aiError)
+      console.error(`❌ ${selectedModel} API call failed:`)
+      console.error('Error name:', aiError.name)
+      console.error('Error message:', aiError.message)
+      console.error('Error stack:', aiError.stack)
       return new Response(
         JSON.stringify({ 
           error: `Failed to get analysis from ${selectedModel}`,
           details: aiError.message,
-          model: selectedModel
+          model: selectedModel,
+          errorType: aiError.name
         }),
         {
           status: 500,
