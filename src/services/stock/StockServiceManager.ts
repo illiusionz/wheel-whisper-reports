@@ -16,9 +16,9 @@ const PROVIDER_RATE_LIMITS = {
     cacheTTL: 15000 // 15 seconds cache
   },
   'polygon': {
-    requestsPerMinute: 5,
-    burstLimit: 5,
-    cacheTTL: 15000 // 15 seconds cache
+    requestsPerMinute: 300, // Increased from 5 to 300
+    burstLimit: 100, // Increased from 5 to 100
+    cacheTTL: 5000 // Reduced from 15000 to 5000 (5 seconds cache for fresher data)
   },
   'mock': {
     requestsPerMinute: 1000,
