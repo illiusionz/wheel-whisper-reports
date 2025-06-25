@@ -65,7 +65,7 @@ const HybridAIInsightCard: React.FC<HybridAIInsightCardProps> = ({
         continue;
       }
       
-      // Bold headers (**text**)
+      // Bold headers (**text**) - convert to subheaders
       if (line.match(/^\*\*[^*]+\*\*:?\s*$/)) {
         const headerText = line.replace(/\*\*/g, '').replace(/:$/, '').trim();
         formatted.push({ type: 'subheader', content: headerText });
@@ -87,14 +87,23 @@ const HybridAIInsightCard: React.FC<HybridAIInsightCardProps> = ({
   };
 
   const highlightNumbers = (text: string) => {
-    return text.split(/(\$[\d,]+\.?\d*|[\d,]+\.?\d*%|[\d,]+\.?\d*|\b\d{4}\b|\[\d+\])/g).map((part, index) => {
+    // First handle inline bold text (**text**) by converting to styled spans
+    let processedText = text.replace(/\*\*([^*]+)\*\*/g, '<strong class="text-slate-100 font-semibold bg-slate-700/30 px-2 py-0.5 rounded text-sm">$1</strong>');
+    
+    // Then handle numbers, percentages, and currencies
+    return processedText.split(/(\$[\d,]+\.?\d*|[\d,]+\.?\d*%|[\d,]+\.?\d*|\b\d{4}\b|\[\d+\]|<strong[^>]*>.*?<\/strong>)/g).map((part, index) => {
+      // Skip already processed bold text
+      if (part.includes('<strong')) {
+        return <span key={index} dangerouslySetInnerHTML={{ __html: part }} />;
+      }
+      
       // Dollar amounts
       if (/^\$[\d,]+\.?\d*$/.test(part)) {
         return <span key={index} className="text-emerald-400 font-semibold bg-emerald-400/10 px-1.5 py-0.5 rounded text-sm">{part}</span>;
       }
       // Percentages
       if (/^[\d,]+\.?\d*%$/.test(part)) {
-        const isNegative = text.includes('-' + part) || text.includes('(' + part);
+        const isNegative = processedText.includes('-' + part) || processedText.includes('(' + part);
         return <span key={index} className={`font-semibold px-1.5 py-0.5 rounded text-sm ${isNegative ? 'text-red-400 bg-red-400/10' : 'text-green-400 bg-green-400/10'}`}>{part}</span>;
       }
       // Regular numbers
@@ -253,17 +262,17 @@ const HybridAIInsightCard: React.FC<HybridAIInsightCardProps> = ({
                     )}
                     
                     {section.type === 'subheader' && (
-                      <div className="flex items-center gap-2 mb-3 mt-6">
-                        <div className="w-1.5 h-1.5 bg-cyan-400 rounded-full"></div>
-                        <h4 className="text-slate-200 font-semibold text-sm">
+                      <div className="flex items-center gap-3 mb-3 mt-6 p-3 bg-gradient-to-r from-cyan-500/10 to-purple-500/10 rounded-lg border border-cyan-500/20">
+                        <div className="w-3 h-3 bg-gradient-to-r from-cyan-400 to-purple-400 rounded-full flex-shrink-0"></div>
+                        <h4 className="text-slate-100 font-semibold text-sm tracking-wide uppercase letter-spacing-wider">
                           {section.content}
                         </h4>
                       </div>
                     )}
                     
                     {section.type === 'bullet' && (
-                      <div className="flex items-start gap-3 mb-3 ml-4">
-                        <div className="w-1 h-1 bg-slate-400 rounded-full mt-2.5 flex-shrink-0"></div>
+                      <div className="flex items-start gap-3 mb-3 ml-4 p-2 hover:bg-slate-800/30 rounded-md transition-colors">
+                        <div className="w-1.5 h-1.5 bg-slate-400 rounded-full mt-2 flex-shrink-0"></div>
                         <div className="text-slate-300 text-sm leading-relaxed">
                           {highlightNumbers(section.content)}
                         </div>
