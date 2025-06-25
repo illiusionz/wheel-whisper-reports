@@ -92,6 +92,50 @@
   background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
 }
 
+/* Enhanced AI card animations */
+@keyframes fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes shimmer {
+  0% {
+    background-position: -200% 0;
+  }
+  100% {
+    background-position: 200% 0;
+  }
+}
+
+@keyframes glow-pulse {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.7;
+  }
+}
+
+.animate-fade-in {
+  animation: fade-in 0.3s ease-out;
+}
+
+.animate-shimmer {
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.1), transparent);
+  background-size: 200% 100%;
+  animation: shimmer 2s infinite;
+}
+
+.animate-glow-pulse {
+  animation: glow-pulse 2s ease-in-out infinite;
+}
+
 /* Animation for loading states */
 @keyframes pulse-subtle {
   0%, 100% {
@@ -155,4 +199,17 @@
 
 .status-error {
   @apply bg-red-500;
+}
+
+/* Hybrid AI specific styles */
+.ai-card-glow {
+  box-shadow: 0 0 0 1px rgba(139, 92, 246, 0.1), 
+              0 4px 6px -1px rgba(0, 0, 0, 0.1), 
+              0 2px 4px -1px rgba(0, 0, 0, 0.06);
+}
+
+.ai-card-glow:hover {
+  box-shadow: 0 0 0 1px rgba(139, 92, 246, 0.2), 
+              0 10px 15px -3px rgba(139, 92, 246, 0.1), 
+              0 4px 6px -2px rgba(139, 92, 246, 0.05);
 }
