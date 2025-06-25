@@ -81,6 +81,7 @@ serve(async (req) => {
   });
 
   try {
+    // Handle CORS preflight requests
     if (req.method === 'OPTIONS') {
       console.log(`✅ [${requestId}] CORS preflight handled`);
       return new Response('ok', { 
@@ -108,7 +109,7 @@ serve(async (req) => {
       );
     }
 
-    // Parse request body with enhanced error handling
+    // Parse and validate request body
     let requestBody;
     try {
       const bodyText = await req.text();
@@ -195,7 +196,7 @@ serve(async (req) => {
       );
     }
 
-    // Get API key
+    // Get and validate API key
     console.log(`🔑 [${requestId}] Getting API key for ${selectedModel}...`);
     let apiKey, keySource;
     try {
@@ -209,23 +210,32 @@ serve(async (req) => {
         throw new Error(`${selectedModel.toUpperCase()} API key is empty or invalid`);
       }
       
-      // Model-specific validation
-      if (selectedModel === 'claude' && !apiKey.startsWith('sk-ant-')) {
-        throw new Error(`Claude API key must start with 'sk-ant-'`);
-      } else if (selectedModel === 'openai' && !apiKey.startsWith('sk-')) {
-        throw new Error(`OpenAI API key must start with 'sk-'`);
-      } else if (selectedModel === 'perplexity' && !apiKey.startsWith('pplx-')) {
-        throw new Error(`Perplexity API key must start with 'pplx-'`);
+      // Enhanced model-specific validation
+      if (selectedModel === 'claude') {
+        if (!apiKey.startsWith('sk-ant-')) {
+          throw new Error(`Claude API key must start with 'sk-ant-', received: ${apiKey.substring(0, 10)}...`);
+        }
+        if (apiKey.length < 40) {
+          throw new Error(`Claude API key appears too short (${apiKey.length} characters)`);
+        }
+      } else if (selectedModel === 'openai') {
+        if (!apiKey.startsWith('sk-')) {
+          throw new Error(`OpenAI API key must start with 'sk-', received: ${apiKey.substring(0, 10)}...`);
+        }
+      } else if (selectedModel === 'perplexity') {
+        if (!apiKey.startsWith('pplx-')) {
+          throw new Error(`Perplexity API key must start with 'pplx-', received: ${apiKey.substring(0, 10)}...`);
+        }
       }
       
     } catch (keyError) {
       console.error(`❌ [${requestId}] API key error:`, keyError.message);
       return new Response(
         JSON.stringify({ 
-          error: `${selectedModel.toUpperCase()} API key not configured or invalid`,
+          error: `${selectedModel.toUpperCase()} API key configuration error`,
           requestId,
           details: keyError.message,
-          suggestion: `Please add a valid ${selectedModel.toUpperCase()} API key to Supabase Edge Function Secrets`
+          suggestion: `Please add a valid ${selectedModel.toUpperCase()}_API_KEY to Supabase Edge Function Secrets`
         }),
         {
           status: 500,
@@ -237,15 +247,17 @@ serve(async (req) => {
       );
     }
 
-    // Build prompt
+    // Build analysis prompt
     console.log(`📝 [${requestId}] Building analysis prompt...`);
     let contextPrompt;
     try {
       contextPrompt = buildContextPrompt(validatedRequest.analysisType, validatedRequest.symbol, validatedRequest.data);
       console.log(`✅ [${requestId}] Prompt built (${contextPrompt.length} characters)`);
       
+      // Truncate overly long prompts
       if (contextPrompt.length > 15000) {
-        contextPrompt = contextPrompt.substring(0, 15000) + '\n\n[Content truncated]';
+        contextPrompt = contextPrompt.substring(0, 15000) + '\n\n[Content truncated for processing]';
+        console.log(`⚠️ [${requestId}] Prompt truncated to ${contextPrompt.length} characters`);
       }
     } catch (promptError) {
       console.error(`❌ [${requestId}] Prompt building error:`, promptError.message);
@@ -265,7 +277,7 @@ serve(async (req) => {
       );
     }
     
-    // Call AI service
+    // Call AI service with enhanced error handling
     console.log(`🚀 [${requestId}] Calling ${selectedModel} API...`);
     const aiStartTime = Date.now();
     
@@ -274,19 +286,31 @@ serve(async (req) => {
     
     try {
       let result;
-      if (selectedModel === 'perplexity') {
-        result = await callPerplexityAPI(apiKey, contextPrompt, validatedRequest.maxTokens);
-      } else if (selectedModel === 'openai') {
-        result = await callOpenAIAPI(apiKey, contextPrompt, validatedRequest.maxTokens);
-      } else {
-        result = await callClaudeAPI(apiKey, contextPrompt, validatedRequest.maxTokens);
+      
+      // Enhanced timeout and retry logic
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => {
+        console.log(`⏰ [${requestId}] AI service timeout after 60 seconds`);
+        controller.abort();
+      }, 60000);
+      
+      try {
+        if (selectedModel === 'perplexity') {
+          result = await callPerplexityAPI(apiKey, contextPrompt, validatedRequest.maxTokens);
+        } else if (selectedModel === 'openai') {
+          result = await callOpenAIAPI(apiKey, contextPrompt, validatedRequest.maxTokens);
+        } else {
+          result = await callClaudeAPI(apiKey, contextPrompt, validatedRequest.maxTokens);
+        }
+      } finally {
+        clearTimeout(timeoutId);
       }
       
       const aiProcessingTime = Date.now() - aiStartTime;
       console.log(`⏱️ [${requestId}] AI processing completed in ${aiProcessingTime}ms`);
       
       if (!result || typeof result !== 'object') {
-        throw new Error('Invalid response from AI service');
+        throw new Error(`Invalid response structure from ${selectedModel} API`);
       }
       
       analysis = result.content || '';
@@ -295,7 +319,8 @@ serve(async (req) => {
       console.log(`✅ [${requestId}] Analysis completed:`, {
         contentLength: analysis.length,
         confidence: confidence,
-        processingTime: aiProcessingTime
+        processingTime: aiProcessingTime,
+        contentPreview: analysis.substring(0, 100) + (analysis.length > 100 ? '...' : '')
       });
       
       if (!analysis || analysis.trim().length === 0) {
@@ -306,7 +331,7 @@ serve(async (req) => {
       console.error(`❌ [${requestId}] AI service error:`, {
         name: aiError.name,
         message: aiError.message,
-        stack: aiError.stack
+        stack: aiError.stack?.substring(0, 500)
       });
       
       let errorMessage = aiError.message || 'Unknown AI service error';
@@ -314,13 +339,16 @@ serve(async (req) => {
       
       if (aiError.message?.includes('authentication') || aiError.message?.includes('401')) {
         errorMessage = `${selectedModel} API authentication failed`;
-        suggestion = `Please update your ${selectedModel.toUpperCase()}_API_KEY in Supabase Edge Function Secrets`;
+        suggestion = `Please verify your ${selectedModel.toUpperCase()}_API_KEY in Supabase Edge Function Secrets`;
       } else if (aiError.message?.includes('rate limit') || aiError.message?.includes('429')) {
         errorMessage = `${selectedModel} API rate limit exceeded`;
         suggestion = 'Wait before making another request or upgrade your API plan';
       } else if (aiError.name === 'AbortError') {
         errorMessage = `${selectedModel} API request timed out`;
-        suggestion = 'Try again with a simpler request';
+        suggestion = 'Try again with a simpler request or check service status';
+      } else if (aiError.message?.includes('fetch') || aiError.message?.includes('network')) {
+        errorMessage = `Network error connecting to ${selectedModel} API`;
+        suggestion = 'Check your internet connection and try again';
       }
       
       return new Response(
@@ -340,14 +368,15 @@ serve(async (req) => {
       );
     }
 
-    // Final validation and response
+    // Final validation and response preparation
     if (!analysis || typeof analysis !== 'string' || analysis.trim().length === 0) {
-      console.error(`❌ [${requestId}] Empty or invalid analysis`);
+      console.error(`❌ [${requestId}] Empty or invalid analysis after processing`);
       return new Response(
         JSON.stringify({ 
           error: 'Empty or invalid response from AI model',
           requestId,
-          model: selectedModel
+          model: selectedModel,
+          details: 'The AI model returned no usable content'
         }),
         {
           status: 500,
@@ -371,7 +400,8 @@ serve(async (req) => {
         symbol: validatedRequest.symbol,
         tokenCount: analysis.length,
         processingTime: totalProcessingTime,
-        apiKeySource: keySource
+        apiKeySource: keySource,
+        promptLength: contextPrompt.length
       }
     };
 
@@ -398,7 +428,7 @@ serve(async (req) => {
     console.error(`💥 [${requestId}] CRITICAL ERROR:`, {
       name: error?.constructor?.name || 'Unknown',
       message: error?.message || 'No message',
-      stack: error?.stack || 'No stack',
+      stack: error?.stack?.substring(0, 500) || 'No stack',
       processingTime: totalTime
     });
     
@@ -407,7 +437,8 @@ serve(async (req) => {
         error: 'Critical failure in AI analysis function',
         requestId,
         details: error?.message || 'Unknown internal server error',
-        timestamp: new Date().toISOString()
+        timestamp: new Date().toISOString(),
+        processingTime: totalTime
       }),
       { 
         status: 500,

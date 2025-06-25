@@ -8,12 +8,11 @@ export const useHybridAI = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Temporarily disable circuit breaker to isolate the issue
   const circuitBreaker = useCircuitBreaker({
     serviceName: 'hybrid-ai-analysis',
-    failureThreshold: 10, // Increased threshold
-    resetTimeout: 30000, // Reduced timeout
-    showToastOnTrip: false // Disable toast to reduce noise
+    failureThreshold: 5,
+    resetTimeout: 60000,
+    showToastOnTrip: false
   });
 
   const getHybridAnalysis = async (
@@ -23,8 +22,9 @@ export const useHybridAI = () => {
     requiresRealTime: boolean = false,
     forceModel?: string
   ) => {
-    console.log('🚀 === HYBRID AI ANALYSIS START ===');
-    console.log('🎯 Request Details:', {
+    const requestId = crypto.randomUUID();
+    console.log(`🚀 [${requestId}] === HYBRID AI ANALYSIS START ===`);
+    console.log(`🎯 [${requestId}] Request Details:`, {
       analysisType,
       symbol,
       dataKeys: Object.keys(data || {}),
@@ -37,8 +37,8 @@ export const useHybridAI = () => {
     setError(null);
 
     try {
-      // Validate and sanitize input
-      console.log('✅ Validating request payload...');
+      // Enhanced input validation
+      console.log(`✅ [${requestId}] Validating request payload...`);
       const requestPayload = validateAIAnalysisRequest({
         analysisType,
         symbol: sanitizeSymbol(symbol),
@@ -49,49 +49,66 @@ export const useHybridAI = () => {
         temperature: 0.3
       });
       
-      console.log('✅ Validated payload:', {
+      console.log(`✅ [${requestId}] Validated payload:`, {
         analysisType: requestPayload.analysisType,
         symbol: requestPayload.symbol,
         forceModel: requestPayload.forceModel,
         maxTokens: requestPayload.maxTokens,
-        temperature: requestPayload.temperature
+        temperature: requestPayload.temperature,
+        dataSize: JSON.stringify(requestPayload.data).length
       });
       
-      // Make direct call to Supabase function (bypass circuit breaker temporarily)
-      console.log('🔄 Calling Supabase Edge Function directly...');
+      // Enhanced Supabase function invocation with better error handling
+      console.log(`🔄 [${requestId}] Invoking Supabase Edge Function...`);
       const startTime = performance.now();
       
+      // Check if circuit breaker allows the request
+      if (!circuitBreaker.isAvailable) {
+        throw new Error('AI analysis service is temporarily unavailable. Please try again in a moment.');
+      }
+
       const { data: result, error: functionError } = await supabase.functions.invoke('hybrid-ai-analysis', {
-        body: requestPayload
+        body: requestPayload,
+        headers: {
+          'Content-Type': 'application/json',
+        }
       });
 
       const endTime = performance.now();
       const duration = Math.round(endTime - startTime);
       
-      console.log('📊 Supabase Function Response:', {
+      console.log(`📊 [${requestId}] Supabase Function Response:`, {
         duration: `${duration}ms`,
         hasError: !!functionError,
         hasResult: !!result,
         resultType: typeof result,
         resultKeys: result ? Object.keys(result) : [],
-        timestamp: new Date().toISOString()
-      });
-
-      if (functionError) {
-        console.error('❌ Supabase Function Error:', {
+        errorDetails: functionError ? {
           message: functionError.message,
           details: functionError.details,
           hint: functionError.hint,
-          code: functionError.code,
-          stack: functionError.stack
-        });
+          code: functionError.code
+        } : null,
+        timestamp: new Date().toISOString()
+      });
+
+      // Enhanced error handling
+      if (functionError) {
+        console.error(`❌ [${requestId}] Supabase Function Error:`, functionError);
+        
+        // Record failure for circuit breaker
+        circuitBreaker.recordFailure();
         
         let errorMessage = 'Failed to get AI analysis';
         
         if (functionError.message?.includes('FunctionsFetchError')) {
-          errorMessage = 'Connection to AI service failed. Please check your internet connection.';
+          errorMessage = 'Unable to connect to AI analysis service. Please check your connection and try again.';
+        } else if (functionError.message?.includes('Function returned an error')) {
+          errorMessage = functionError.details || 'AI analysis service returned an error. Please try again.';
         } else if (functionError.message?.includes('401') || functionError.message?.includes('unauthorized')) {
           errorMessage = 'API authentication failed. Please check your API key configuration.';
+        } else if (functionError.message?.includes('timeout')) {
+          errorMessage = 'Request timed out. Please try again with a simpler request.';
         } else if (functionError.details || functionError.message) {
           errorMessage = functionError.details || functionError.message;
         }
@@ -101,33 +118,41 @@ export const useHybridAI = () => {
       }
 
       if (!result) {
-        console.error('❌ No result from Edge Function');
-        setError('No response received from AI service');
+        console.error(`❌ [${requestId}] No result from Edge Function`);
+        circuitBreaker.recordFailure();
+        setError('No response received from AI analysis service');
         return null;
       }
 
       // Enhanced result validation
       if (result.error) {
-        console.error('❌ Error in result:', result.error);
+        console.error(`❌ [${requestId}] Error in result:`, result.error);
+        circuitBreaker.recordFailure();
         setError(result.error);
         return null;
       }
 
       if (!result.content || typeof result.content !== 'string' || result.content.trim().length === 0) {
-        console.error('❌ Invalid or empty content:', {
+        console.error(`❌ [${requestId}] Invalid or empty content:`, {
           hasContent: !!result.content,
           contentType: typeof result.content,
-          contentLength: result.content?.length || 0
+          contentLength: result.content?.length || 0,
+          contentPreview: result.content?.substring(0, 100)
         });
+        circuitBreaker.recordFailure();
         setError('Invalid or empty analysis content received');
         return null;
       }
 
-      console.log('✅ Analysis completed successfully:', {
+      // Record success for circuit breaker
+      circuitBreaker.recordSuccess();
+
+      console.log(`✅ [${requestId}] Analysis completed successfully:`, {
         model: result.model,
         contentLength: result.content.length,
         confidence: result.confidence,
-        processingTime: duration
+        processingTime: duration,
+        metadata: result.metadata
       });
 
       const finalResult = {
@@ -139,37 +164,46 @@ export const useHybridAI = () => {
         symbol: requestPayload.symbol,
         metadata: {
           ...result.metadata,
-          processingTime: duration
+          processingTime: duration,
+          requestId
         }
       };
       
       setError(null);
+      console.log(`🏁 [${requestId}] === HYBRID AI ANALYSIS END ===`);
       return finalResult;
 
     } catch (err: any) {
-      console.error('💥 Catch Block Error:', {
+      const endTime = performance.now();
+      console.error(`💥 [${requestId}] Catch Block Error:`, {
         name: err?.name,
         message: err?.message,
         stack: err?.stack,
         cause: err?.cause,
-        timestamp: new Date().toISOString()
+        timestamp: new Date().toISOString(),
+        processingTime: `${Math.round(endTime - performance.now())}ms`
       });
       
-      let errorMessage = 'An unexpected error occurred';
+      // Record failure for circuit breaker
+      circuitBreaker.recordFailure();
       
-      if (err.message?.includes('fetch')) {
-        errorMessage = 'Network connection failed. Please check your internet connection.';
-      } else if (err.message?.includes('timeout')) {
+      let errorMessage = 'An unexpected error occurred during AI analysis';
+      
+      if (err.message?.includes('fetch') || err.message?.includes('network')) {
+        errorMessage = 'Network connection failed. Please check your internet connection and try again.';
+      } else if (err.message?.includes('timeout') || err.name === 'AbortError') {
         errorMessage = 'Request timed out. Please try again.';
+      } else if (err.message?.includes('FunctionsFetchError')) {
+        errorMessage = 'Unable to connect to AI analysis service. Please try again.';
       } else if (err.message) {
         errorMessage = err.message;
       }
       
       setError(errorMessage);
+      console.log(`🏁 [${requestId}] === HYBRID AI ANALYSIS END (ERROR) ===`);
       return null;
     } finally {
       setIsLoading(false);
-      console.log('🏁 === HYBRID AI ANALYSIS END ===');
     }
   };
 

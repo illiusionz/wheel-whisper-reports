@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { Brain, Loader2, Zap, Clock, Sparkles, Settings, ChevronDown, RefreshCw, AlertCircle, CheckCircle } from 'lucide-react';
+import { Brain, Loader2, Zap, Clock, Sparkles, Settings, ChevronDown, RefreshCw, AlertCircle, CheckCircle, WifiOff } from 'lucide-react';
 import { useHybridAI } from '@/hooks/useHybridAI';
 
 interface HybridAIInsightCardProps {
@@ -31,28 +31,33 @@ const HybridAIInsightCard: React.FC<HybridAIInsightCardProps> = ({
   requiresRealTime = false,
   allowModelSelection = true
 }) => {
-  const { getHybridAnalysis, isLoading, error } = useHybridAI();
+  const { getHybridAnalysis, isLoading, error, isServiceAvailable, circuitBreakerStats } = useHybridAI();
   const [analysis, setAnalysis] = useState<any>(null);
   const [hasAnalyzed, setHasAnalyzed] = useState(false);
   const [selectedModel, setSelectedModel] = useState<'auto' | 'claude' | 'openai' | 'perplexity'>('auto');
   const [showModelSelector, setShowModelSelector] = useState(false);
   const [debugInfo, setDebugInfo] = useState<any>(null);
+  const [retryCount, setRetryCount] = useState(0);
 
   const handleAnalyze = useCallback(async () => {
     if (isLoading) return;
     
-    console.log('🎯 HybridAIInsightCard: Starting analysis...', {
+    const requestId = crypto.randomUUID();
+    console.log(`🎯 [${requestId}] HybridAIInsightCard: Starting analysis...`, {
       symbol,
       analysisType,
       selectedModel,
+      retryCount,
       timestamp: new Date().toISOString()
     });
     
     setDebugInfo({
+      requestId,
       startTime: new Date().toISOString(),
       symbol,
       analysisType,
       selectedModel,
+      retryCount,
       status: 'starting'
     });
     
@@ -60,48 +65,56 @@ const HybridAIInsightCard: React.FC<HybridAIInsightCardProps> = ({
       const forceModel = selectedModel === 'auto' ? undefined : selectedModel;
       const result = await getHybridAnalysis(analysisType, symbol, data, requiresRealTime, forceModel);
       
-      console.log('📊 HybridAIInsightCard: Analysis result:', {
+      console.log(`📊 [${requestId}] HybridAIInsightCard: Analysis result:`, {
         hasResult: !!result,
         resultType: typeof result,
         resultKeys: result ? Object.keys(result) : [],
-        contentLength: result?.content?.length || 0
+        contentLength: result?.content?.length || 0,
+        model: result?.model,
+        confidence: result?.confidence
       });
       
       setDebugInfo(prev => ({
         ...prev,
         status: result ? 'success' : 'failed',
         endTime: new Date().toISOString(),
-        resultReceived: !!result
+        resultReceived: !!result,
+        resultMetadata: result?.metadata
       }));
       
       if (result) {
         setAnalysis(result);
         setHasAnalyzed(true);
-        console.log('✅ HybridAIInsightCard: Analysis completed successfully');
+        setRetryCount(0); // Reset retry count on success
+        console.log(`✅ [${requestId}] HybridAIInsightCard: Analysis completed successfully`);
       } else {
-        console.log('❌ HybridAIInsightCard: No result received but no error thrown');
+        setRetryCount(prev => prev + 1);
+        console.log(`❌ [${requestId}] HybridAIInsightCard: No result received but no error thrown`);
       }
     } catch (err: any) {
-      console.error('💥 HybridAIInsightCard: Analysis error:', {
+      setRetryCount(prev => prev + 1);
+      console.error(`💥 [${requestId}] HybridAIInsightCard: Analysis error:`, {
         error: err,
         message: err?.message,
-        stack: err?.stack
+        stack: err?.stack?.substring(0, 500)
       });
       
       setDebugInfo(prev => ({
         ...prev,
         status: 'error',
         endTime: new Date().toISOString(),
-        error: err?.message
+        error: err?.message,
+        errorType: err?.name
       }));
     }
-  }, [getHybridAnalysis, analysisType, symbol, data, requiresRealTime, selectedModel, isLoading]);
+  }, [getHybridAnalysis, analysisType, symbol, data, requiresRealTime, selectedModel, isLoading, retryCount]);
 
   // Reset analysis when symbol changes
   useEffect(() => {
     setAnalysis(null);
     setHasAnalyzed(false);
     setDebugInfo(null);
+    setRetryCount(0);
   }, [symbol]);
 
   const formatAnalysisContent = useCallback((content: string) => {
@@ -199,6 +212,12 @@ const HybridAIInsightCard: React.FC<HybridAIInsightCardProps> = ({
                     {modelInfo.name}
                   </Badge>
                 )}
+                {!isServiceAvailable && (
+                  <Badge variant="outline" className="text-xs border-red-500/30 text-red-400 bg-red-500/10">
+                    <WifiOff className="h-3 w-3 mr-1" />
+                    Service Unavailable
+                  </Badge>
+                )}
                 {debugInfo && (
                   <Badge variant="outline" className={`text-xs border-slate-600 ${
                     debugInfo.status === 'success' ? 'bg-green-500/10 text-green-400' :
@@ -274,6 +293,9 @@ const HybridAIInsightCard: React.FC<HybridAIInsightCardProps> = ({
               <div>
                 <h4 className="text-red-400 font-medium text-sm">Analysis Error</h4>
                 <p className="text-red-300 text-xs mt-1">{error}</p>
+                {retryCount > 0 && (
+                  <p className="text-red-400/60 text-xs mt-1">Attempt #{retryCount}</p>
+                )}
               </div>
             </div>
           </div>
@@ -286,7 +308,14 @@ const HybridAIInsightCard: React.FC<HybridAIInsightCardProps> = ({
               <div>Status: <span className="text-slate-200">{debugInfo.status}</span></div>
               <div>Model: <span className="text-slate-200">{selectedModel}</span></div>
               <div>Symbol: <span className="text-slate-200">{debugInfo.symbol}</span></div>
+              <div>Request ID: <span className="text-slate-200 font-mono text-xs">{debugInfo.requestId?.substring(0, 8)}...</span></div>
               {debugInfo.error && <div>Error: <span className="text-red-300">{debugInfo.error}</span></div>}
+              {circuitBreakerStats && (
+                <div className="mt-2 pt-2 border-t border-slate-700/50">
+                  <div>Circuit Breaker: <span className="text-slate-200">{circuitBreakerStats.state}</span></div>
+                  <div>Failures: <span className="text-slate-200">{circuitBreakerStats.failures}</span></div>
+                </div>
+              )}
             </div>
           </div>
         )}
@@ -306,17 +335,27 @@ const HybridAIInsightCard: React.FC<HybridAIInsightCardProps> = ({
                     : `Analysis will be performed using ${selectedModel.charAt(0).toUpperCase() + selectedModel.slice(1)}`
                   }
                 </p>
+                {!isServiceAvailable && (
+                  <p className="text-xs text-red-400 max-w-xs mx-auto">
+                    Service temporarily unavailable. Please try again in a moment.
+                  </p>
+                )}
               </div>
               
               <Button 
                 onClick={handleAnalyze}
-                disabled={isLoading}
-                className="bg-gradient-to-r from-purple-600 to-cyan-600 hover:from-purple-500 hover:to-cyan-500 text-white border-0 shadow-lg hover:shadow-xl transition-all duration-300 transform hover:scale-105"
+                disabled={isLoading || !isServiceAvailable}
+                className="bg-gradient-to-r from-purple-600 to-cyan-600 hover:from-purple-500 hover:to-cyan-500 text-white border-0 shadow-lg hover:shadow-xl transition-all duration-300 transform hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {isLoading ? (
                   <>
                     <Loader2 className="h-4 w-4 animate-spin mr-2" />
                     Analyzing...
+                  </>
+                ) : !isServiceAvailable ? (
+                  <>
+                    <WifiOff className="h-4 w-4 mr-2" />
+                    Service Unavailable
                   </>
                 ) : (
                   <>
@@ -391,10 +430,10 @@ const HybridAIInsightCard: React.FC<HybridAIInsightCardProps> = ({
               
               <Button
                 onClick={handleAnalyze}
-                disabled={isLoading}
+                disabled={isLoading || !isServiceAvailable}
                 size="sm"
                 variant="outline"
-                className="border-purple-500/30 text-purple-300 hover:bg-purple-500/10 hover:border-purple-400/50 transition-all duration-200 font-medium"
+                className="border-purple-500/30 text-purple-300 hover:bg-purple-500/10 hover:border-purple-400/50 transition-all duration-200 font-medium disabled:opacity-50"
               >
                 {isLoading ? (
                   <Loader2 className="h-4 w-4 animate-spin" />
@@ -414,11 +453,18 @@ const HybridAIInsightCard: React.FC<HybridAIInsightCardProps> = ({
                 <AlertCircle className="h-8 w-8 text-red-400" />
               </div>
               
+              <div className="space-y-2">
+                <h3 className="text-sm font-medium text-red-200">Analysis Failed</h3>
+                <p className="text-xs text-red-400 max-w-xs mx-auto">
+                  Unable to complete analysis. Please try again.
+                </p>
+              </div>
+              
               <Button 
                 onClick={handleAnalyze}
-                disabled={isLoading}
+                disabled={isLoading || !isServiceAvailable}
                 variant="outline"
-                className="border-red-500/30 text-red-300 hover:bg-red-500/10"
+                className="border-red-500/30 text-red-300 hover:bg-red-500/10 disabled:opacity-50"
               >
                 {isLoading ? (
                   <>
