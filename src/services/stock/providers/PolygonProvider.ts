@@ -1,4 +1,3 @@
-
 import { StockProvider, StockQuote } from '@/types/stock';
 
 interface PolygonQuote {
@@ -85,28 +84,39 @@ export class PolygonProvider implements StockProvider {
 
   async getQuote(symbol: string): Promise<StockQuote> {
     try {
-      // Get current quote and previous close for better data
-      const [quote, previousClose, tickerDetails] = await Promise.all([
-        this.getCurrentQuote(symbol),
+      console.log(`Fetching detailed quote for ${symbol}...`);
+      
+      // Get current quote, previous close, and ticker details
+      const [previousClose, tickerDetails] = await Promise.all([
         this.getPreviousClose(symbol),
         this.getTickerDetails(symbol).catch(() => null)
       ]);
 
-      const currentPrice = quote?.c || previousClose?.c || 0;
-      const previousClosePrice = previousClose?.c || currentPrice;
-      const change = currentPrice - previousClosePrice;
-      const changePercent = previousClosePrice !== 0 ? (change / previousClosePrice) * 100 : 0;
+      console.log(`Previous close data for ${symbol}:`, previousClose);
+      console.log(`Ticker details for ${symbol}:`, tickerDetails);
 
-      return {
+      if (!previousClose) {
+        throw new Error(`No market data available for ${symbol}`);
+      }
+
+      const currentPrice = previousClose.c;
+      const openPrice = previousClose.o;
+      const change = currentPrice - openPrice;
+      const changePercent = openPrice !== 0 ? (change / openPrice) * 100 : 0;
+
+      const quote: StockQuote = {
         symbol: symbol.toUpperCase(),
         name: tickerDetails?.name || `${symbol.toUpperCase()} Corporation`,
         price: Number(currentPrice.toFixed(2)),
         change: Number(change.toFixed(2)),
         changePercent: Number(changePercent.toFixed(2)),
-        volume: quote?.v || previousClose?.v,
+        volume: previousClose.v,
         marketCap: tickerDetails?.market_cap,
         lastUpdated: new Date().toISOString()
       };
+
+      console.log(`Processed quote for ${symbol}:`, quote);
+      return quote;
     } catch (error) {
       console.error(`Polygon API error for ${symbol}:`, error);
       throw new Error(`Failed to fetch quote for ${symbol}: ${error}`);
@@ -246,6 +256,7 @@ export class PolygonProvider implements StockProvider {
       if (!response.ok) return null;
       
       const data = await response.json();
+      console.log(`Raw Polygon response for ${symbol}:`, data);
       return data.results?.[0] || null;
     } catch (error) {
       console.error('Error fetching previous close:', error);
