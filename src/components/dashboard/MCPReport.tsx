@@ -1,4 +1,3 @@
-
 import React, { useEffect, useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -14,6 +13,7 @@ import TechnicalSnapshot from './mcp-sections/TechnicalSnapshot';
 import ExpectedClosing from './mcp-sections/ExpectedClosing';
 import OptionsActivity from './mcp-sections/OptionsActivity';
 import WheelStrategyLadder from './mcp-sections/WheelStrategyLadder';
+import TradingChatPanel from '@/components/ai/TradingChatPanel';
 
 interface MCPReportProps {
   symbol: string;
@@ -206,6 +206,14 @@ const MCPReport: React.FC<MCPReportProps> = ({ symbol, report, onRefresh, isRefr
           
           <ErrorBoundary level="component">
             <WheelStrategyLadder stockData={currentData} />
+          </ErrorBoundary>
+
+          {/* AI Trading Chat Panel */}
+          <ErrorBoundary level="component">
+            <TradingChatPanel 
+              symbol={symbol} 
+              context={`Current price: $${currentData.price}, Change: ${currentData.changePercent.toFixed(2)}%`}
+            />
           </ErrorBoundary>
         </>
       )}
