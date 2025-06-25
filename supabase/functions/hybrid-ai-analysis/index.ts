@@ -247,6 +247,8 @@ Provide comprehensive financial analysis with specific insights and actionable r
 
 async function callClaudeAPI(apiKey: string, prompt: string, maxTokens: number) {
   console.log('Making Claude API request...')
+  console.log('API Key length:', apiKey ? apiKey.length : 0)
+  console.log('API Key prefix:', apiKey ? apiKey.substring(0, 8) + '...' : 'none')
   
   const response = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
@@ -257,7 +259,7 @@ async function callClaudeAPI(apiKey: string, prompt: string, maxTokens: number) 
     },
     body: JSON.stringify({
       model: 'claude-3-5-sonnet-20241022',
-      max_tokens: maxTokens,
+      max_tokens: Math.min(maxTokens, 4000),
       temperature: 0.3,
       messages: [
         {
@@ -268,6 +270,9 @@ async function callClaudeAPI(apiKey: string, prompt: string, maxTokens: number) 
     })
   })
 
+  console.log('Claude API response status:', response.status)
+  console.log('Claude API response headers:', Object.fromEntries(response.headers.entries()))
+
   if (!response.ok) {
     const errorText = await response.text()
     console.error(`Claude API error ${response.status}:`, errorText)
@@ -276,9 +281,10 @@ async function callClaudeAPI(apiKey: string, prompt: string, maxTokens: number) 
 
   const data = await response.json()
   console.log('Claude API response received successfully')
+  console.log('Response structure:', Object.keys(data))
   
   return {
-    content: data.content[0].text || '',
+    content: data.content?.[0]?.text || '',
     confidence: 0.85
   }
 }
@@ -306,10 +312,7 @@ async function callPerplexityAPI(apiKey: string, prompt: string, maxTokens: numb
       ],
       temperature: 0.3,
       top_p: 0.9,
-      max_tokens: maxTokens,
-      return_images: false,
-      return_related_questions: false,
-      search_recency_filter: 'day'
+      max_tokens: Math.min(maxTokens, 4000)
     }),
   })
 
@@ -350,7 +353,7 @@ async function callOpenAIAPI(apiKey: string, prompt: string, maxTokens: number) 
         }
       ],
       temperature: 0.3,
-      max_tokens: maxTokens,
+      max_tokens: Math.min(maxTokens, 4000),
     }),
   })
 
