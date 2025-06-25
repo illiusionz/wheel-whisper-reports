@@ -11,24 +11,42 @@ export interface HybridAIResponse {
   timestamp: string;
 }
 
+export interface ModelPreferences {
+  preferredModel?: 'claude' | 'openai' | 'perplexity' | 'auto';
+  fallbackOrder: ('claude' | 'openai' | 'perplexity')[];
+  enableAutoRouting: boolean;
+}
+
 export const useHybridAI = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [modelPreferences, setModelPreferences] = useState<ModelPreferences>({
+    preferredModel: 'auto',
+    fallbackOrder: ['claude', 'openai', 'perplexity'],
+    enableAutoRouting: true
+  });
   const { toast } = useToast();
 
   const rateLimiter = useRateLimitedAPI<HybridAIResponse>({
-    maxCallsPerMinute: 15, // Higher limit for hybrid system
+    maxCallsPerMinute: 15,
     cacheTTL: 300000, // 5 minutes cache
     debounceMs: 1000
   });
 
-  const getOptimalModel = (analysisType: string, requiresRealTime: boolean = false) => {
+  const getOptimalModel = (analysisType: string, requiresRealTime: boolean = false): 'claude' | 'openai' | 'perplexity' => {
+    // If auto-routing is disabled, use preferred model or first in fallback order
+    if (!modelPreferences.enableAutoRouting) {
+      return modelPreferences.preferredModel === 'auto' ? 
+        modelPreferences.fallbackOrder[0] : 
+        modelPreferences.preferredModel!;
+    }
+
     // Perplexity for real-time data needs
     if (requiresRealTime || analysisType.includes('news') || analysisType.includes('sentiment')) {
       return 'perplexity';
     }
     
-    // Claude for sophisticated financial analysis
+    // Claude for sophisticated financial analysis and options strategies
     if (['technical', 'risk', 'strategy', 'options'].some(type => analysisType.includes(type))) {
       return 'claude';
     }
@@ -41,14 +59,15 @@ export const useHybridAI = () => {
     analysisType: 'technical' | 'options' | 'risk' | 'general' | 'news' | 'sentiment',
     symbol: string,
     data: any,
-    requiresRealTime: boolean = false
+    requiresRealTime: boolean = false,
+    forceModel?: 'claude' | 'openai' | 'perplexity'
   ): Promise<HybridAIResponse | null> => {
     setIsLoading(true);
     setError(null);
 
     try {
-      const optimalModel = getOptimalModel(analysisType, requiresRealTime);
-      const cacheKey = `hybrid-${symbol}-${analysisType}-${optimalModel}-${JSON.stringify(data).slice(0, 100)}`;
+      const selectedModel = forceModel || getOptimalModel(analysisType, requiresRealTime);
+      const cacheKey = `hybrid-${symbol}-${analysisType}-${selectedModel}-${JSON.stringify(data).slice(0, 100)}`;
       
       const result = await rateLimiter.debouncedCall(
         cacheKey,
@@ -58,7 +77,8 @@ export const useHybridAI = () => {
               analysisType, 
               symbol, 
               data, 
-              preferredModel: optimalModel,
+              preferredModel: selectedModel,
+              fallbackOrder: modelPreferences.fallbackOrder,
               requiresRealTime 
             }
           });
@@ -80,6 +100,12 @@ export const useHybridAI = () => {
           description: "Too many AI requests. Please wait before trying again.",
           variant: "destructive",
         });
+      } else if (errorMsg.includes('API key')) {
+        toast({
+          title: "API Configuration",
+          description: "Please check your API key configuration in settings.",
+          variant: "destructive",
+        });
       }
       
       return null;
@@ -88,11 +114,17 @@ export const useHybridAI = () => {
     }
   };
 
+  const updateModelPreferences = (preferences: Partial<ModelPreferences>) => {
+    setModelPreferences(prev => ({ ...prev, ...preferences }));
+  };
+
   return {
     getHybridAnalysis,
     isLoading,
     error,
     remainingCalls: rateLimiter.getRemainingCalls(),
     canMakeCall: rateLimiter.canMakeCall(),
+    modelPreferences,
+    updateModelPreferences,
   };
 };

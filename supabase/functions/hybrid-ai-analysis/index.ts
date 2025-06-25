@@ -36,6 +36,11 @@ const callClaude = async (prompt: string, systemPrompt: string): Promise<ModelRe
     }),
   });
 
+  if (!response.ok) {
+    const errorData = await response.text();
+    throw new Error(`Claude API error: ${response.status} - ${errorData}`);
+  }
+
   const data = await response.json();
   return {
     content: data.content[0].text,
@@ -58,7 +63,7 @@ const callOpenAI = async (prompt: string, systemPrompt: string): Promise<ModelRe
       'Content-Type': 'application/json',
     },
     body: JSON.stringify({
-      model: 'gpt-4o-mini',
+      model: 'gpt-4.1-2025-04-14',
       messages: [
         { role: 'system', content: systemPrompt },
         { role: 'user', content: prompt }
@@ -67,6 +72,11 @@ const callOpenAI = async (prompt: string, systemPrompt: string): Promise<ModelRe
       temperature: 0.3,
     }),
   });
+
+  if (!response.ok) {
+    const errorData = await response.text();
+    throw new Error(`OpenAI API error: ${response.status} - ${errorData}`);
+  }
 
   const data = await response.json();
   return {
@@ -102,6 +112,11 @@ const callPerplexity = async (prompt: string, systemPrompt: string): Promise<Mod
     }),
   });
 
+  if (!response.ok) {
+    const errorData = await response.text();
+    throw new Error(`Perplexity API error: ${response.status} - ${errorData}`);
+  }
+
   const data = await response.json();
   return {
     content: data.choices[0].message.content,
@@ -111,13 +126,19 @@ const callPerplexity = async (prompt: string, systemPrompt: string): Promise<Mod
   };
 };
 
+const modelCallers = {
+  claude: callClaude,
+  openai: callOpenAI,
+  perplexity: callPerplexity
+};
+
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
   }
 
   try {
-    const { analysisType, symbol, data, preferredModel, requiresRealTime } = await req.json();
+    const { analysisType, symbol, data, preferredModel, fallbackOrder, requiresRealTime } = await req.json();
     
     let systemPrompt = '';
     let userPrompt = '';
@@ -126,71 +147,76 @@ serve(async (req) => {
     switch (analysisType) {
       case 'technical':
         systemPrompt = `You are an expert technical analyst specializing in wheel strategies. 
-        Provide concise, actionable insights for options trading. Focus on entry points, strike selection, and risk assessment.`;
+        Provide concise, actionable insights for options trading. Focus on entry points, strike selection, and risk assessment.
+        Keep responses under 150 words and be specific about actionable recommendations.`;
         userPrompt = `Analyze ${symbol} technical data for wheel strategy: ${JSON.stringify(data)}`;
         break;
         
       case 'options':
-        systemPrompt = `You are an options strategy expert. Analyze for wheel strategy optimization, focusing on IV rank, strike selection, and timing.`;
+        systemPrompt = `You are an options strategy expert. Analyze for wheel strategy optimization, focusing on IV rank, strike selection, and timing.
+        Provide specific recommendations for strike prices, expiration dates, and entry/exit criteria. Keep under 150 words.`;
         userPrompt = `Analyze ${symbol} options data for wheel strategy: ${JSON.stringify(data)}`;
         break;
         
       case 'risk':
-        systemPrompt = `You are a risk management expert. Assess risks for wheel strategies, focusing on assignment probability and risk mitigation.`;
+        systemPrompt = `You are a risk management expert. Assess risks for wheel strategies, focusing on assignment probability and risk mitigation.
+        Quantify risks where possible and provide specific mitigation strategies. Keep under 150 words.`;
         userPrompt = `Assess risks for ${symbol} wheel strategy: ${JSON.stringify(data)}`;
         break;
 
       case 'news':
       case 'sentiment':
-        systemPrompt = `You are a market sentiment analyst. Analyze current news and market sentiment for trading decisions.`;
+        systemPrompt = `You are a market sentiment analyst. Analyze current news and market sentiment for trading decisions.
+        Focus on how recent events might impact options trading and wheel strategies. Be concise and actionable.`;
         userPrompt = `Analyze current market sentiment and news for ${symbol}: ${JSON.stringify(data)}`;
         break;
         
       default:
-        systemPrompt = `You are a comprehensive trading analyst. Provide strategic insights for options wheel strategies.`;
+        systemPrompt = `You are a comprehensive trading analyst. Provide strategic insights for options wheel strategies.
+        Be specific, actionable, and concise. Focus on practical trading recommendations.`;
         userPrompt = `Analyze ${symbol}: ${JSON.stringify(data)}`;
     }
 
     let result: ModelResponse;
-    
-    // Try preferred model first, with fallbacks
-    try {
-      switch (preferredModel) {
-        case 'claude':
-          result = await callClaude(userPrompt, systemPrompt);
-          break;
-        case 'perplexity':
-          result = await callPerplexity(userPrompt, systemPrompt);
-          break;
-        default:
-          result = await callOpenAI(userPrompt, systemPrompt);
-      }
-    } catch (primaryError) {
-      console.warn(`Primary model ${preferredModel} failed, trying fallback:`, primaryError);
-      
-      // Fallback to OpenAI if primary fails
+    const attemptOrder = fallbackOrder || ['claude', 'openai', 'perplexity'];
+    let lastError: Error | null = null;
+
+    // Try preferred model first, then fallbacks
+    for (const modelName of attemptOrder) {
       try {
-        result = await callOpenAI(userPrompt, systemPrompt);
-        result.confidence *= 0.9; // Slightly lower confidence for fallback
-      } catch (fallbackError) {
-        console.error('All models failed:', fallbackError);
-        throw new Error('All AI models are currently unavailable');
+        console.log(`Attempting to call ${modelName} for ${analysisType} analysis`);
+        result = await modelCallers[modelName as keyof typeof modelCallers](userPrompt, systemPrompt);
+        console.log(`Successfully got response from ${modelName}`);
+        break;
+      } catch (error) {
+        console.warn(`${modelName} failed:`, error);
+        lastError = error as Error;
+        
+        // If this was the last model in the list, throw the error
+        if (modelName === attemptOrder[attemptOrder.length - 1]) {
+          throw new Error(`All AI models failed. Last error: ${lastError?.message}`);
+        }
+        
+        continue; // Try next model
       }
     }
 
     return new Response(JSON.stringify({
-      content: result.content,
-      model: result.model,
-      confidence: result.confidence,
+      content: result!.content,
+      model: result!.model,
+      confidence: result!.confidence,
       timestamp: new Date().toISOString(),
-      cost: result.cost
+      cost: result!.cost
     }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
 
   } catch (error) {
     console.error('Hybrid AI Analysis error:', error);
-    return new Response(JSON.stringify({ error: error.message }), {
+    return new Response(JSON.stringify({ 
+      error: error.message,
+      timestamp: new Date().toISOString()
+    }), {
       status: 500,
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });

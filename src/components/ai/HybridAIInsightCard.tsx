@@ -3,7 +3,8 @@ import React, { useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Brain, Loader2, Zap, Clock, Sparkles } from 'lucide-react';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Brain, Loader2, Zap, Clock, Sparkles, Settings } from 'lucide-react';
 import { useHybridAI } from '@/hooks/useHybridAI';
 
 interface HybridAIInsightCardProps {
@@ -12,6 +13,7 @@ interface HybridAIInsightCardProps {
   data: any;
   title: string;
   requiresRealTime?: boolean;
+  allowModelSelection?: boolean;
 }
 
 const modelIcons = {
@@ -25,16 +27,20 @@ const HybridAIInsightCard: React.FC<HybridAIInsightCardProps> = ({
   analysisType, 
   data, 
   title,
-  requiresRealTime = false
+  requiresRealTime = false,
+  allowModelSelection = true
 }) => {
   const { getHybridAnalysis, isLoading, error } = useHybridAI();
   const [analysis, setAnalysis] = useState<any>(null);
   const [hasAnalyzed, setHasAnalyzed] = useState(false);
+  const [selectedModel, setSelectedModel] = useState<'auto' | 'claude' | 'openai' | 'perplexity'>('auto');
+  const [showModelSelector, setShowModelSelector] = useState(false);
 
   const handleAnalyze = async () => {
     if (isLoading) return;
     
-    const result = await getHybridAnalysis(analysisType, symbol, data, requiresRealTime);
+    const forceModel = selectedModel === 'auto' ? undefined : selectedModel;
+    const result = await getHybridAnalysis(analysisType, symbol, data, requiresRealTime, forceModel);
     if (result) {
       setAnalysis(result);
       setHasAnalyzed(true);
@@ -56,6 +62,16 @@ const HybridAIInsightCard: React.FC<HybridAIInsightCardProps> = ({
             {title}
           </div>
           <div className="flex items-center gap-2">
+            {allowModelSelection && (
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setShowModelSelector(!showModelSelector)}
+                className="h-6 w-6 p-0 hover:bg-indigo-100"
+              >
+                <Settings className="h-3 w-3" />
+              </Button>
+            )}
             {modelInfo && (
               <Badge variant="outline" className="text-xs">
                 <modelInfo.icon className={`h-3 w-3 mr-1 ${modelInfo.color}`} />
@@ -68,6 +84,22 @@ const HybridAIInsightCard: React.FC<HybridAIInsightCardProps> = ({
             </div>
           </div>
         </CardTitle>
+        
+        {showModelSelector && allowModelSelection && (
+          <div className="mt-2">
+            <Select value={selectedModel} onValueChange={(value: any) => setSelectedModel(value)}>
+              <SelectTrigger className="h-8 text-xs">
+                <SelectValue placeholder="Choose model" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="auto">Auto (Smart Routing)</SelectItem>
+                <SelectItem value="claude">Claude (Best for Analysis)</SelectItem>
+                <SelectItem value="openai">OpenAI (Balanced)</SelectItem>
+                <SelectItem value="perplexity">Perplexity (Real-time)</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+        )}
       </CardHeader>
       <CardContent className="pt-0">
         {!hasAnalyzed ? (
@@ -91,7 +123,7 @@ const HybridAIInsightCard: React.FC<HybridAIInsightCardProps> = ({
               )}
             </Button>
             <p className="text-xs text-indigo-600 mt-2">
-              Uses optimal AI model for best results
+              {selectedModel === 'auto' ? 'Uses optimal AI model for best results' : `Using ${selectedModel.toUpperCase()}`}
             </p>
           </div>
         ) : (
