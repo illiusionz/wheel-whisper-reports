@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '@/hooks/useAuth';
 import { useWatchlist } from '@/hooks/useWatchlist';
@@ -7,6 +6,7 @@ import WatchlistPanel from './WatchlistPanel';
 import MCPReport from './MCPReport';
 import SchedulePanel from './SchedulePanel';
 import SettingsPanel from './SettingsPanel';
+import StockProviderSelector from './StockProviderSelector';
 
 const Dashboard: React.FC = () => {
   const { user, signOut } = useAuth();
@@ -116,7 +116,12 @@ const Dashboard: React.FC = () => {
           />
         );
       case 'settings':
-        return <SettingsPanel />;
+        return (
+          <div className="space-y-6">
+            <StockProviderSelector />
+            <SettingsPanel />
+          </div>
+        );
       default:
         return (
           <div className="space-y-6">
