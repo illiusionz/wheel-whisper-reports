@@ -28,7 +28,6 @@ export const useHybridAI = () => {
       analysisType,
       symbol,
       dataKeys: Object.keys(data || {}),
-      dataValues: data,
       requiresRealTime,
       forceModel,
       timestamp: new Date().toISOString()
@@ -54,14 +53,10 @@ export const useHybridAI = () => {
         analysisType: requestPayload.analysisType,
         symbol: requestPayload.symbol,
         forceModel: requestPayload.forceModel,
-        maxTokens: requestPayload.maxTokens,
-        temperature: requestPayload.temperature,
-        dataSize: JSON.stringify(requestPayload.data).length,
-        fullData: requestPayload.data
+        dataSize: JSON.stringify(requestPayload.data).length
       });
       
       // Use circuit breaker to execute the request
-      console.log(`🔄 [${requestId}] Executing request through circuit breaker...`);
       const result = await circuitBreaker.execute(async () => {
         const startTime = performance.now();
         
@@ -81,15 +76,7 @@ export const useHybridAI = () => {
           hasError: !!functionError,
           hasResult: !!result,
           resultType: typeof result,
-          resultKeys: result ? Object.keys(result) : [],
-          fullResult: result,
-          errorDetails: functionError ? {
-            message: functionError.message,
-            details: functionError.details,
-            hint: functionError.hint,
-            code: functionError.code
-          } : null,
-          timestamp: new Date().toISOString()
+          errorDetails: functionError
         });
 
         if (functionError) {
@@ -117,6 +104,7 @@ export const useHybridAI = () => {
           throw new Error('No response received from AI analysis service');
         }
 
+        // Handle error responses from the edge function
         if (result.error) {
           console.error(`❌ [${requestId}] Error in result:`, result.error);
           throw new Error(result.error);
@@ -126,8 +114,7 @@ export const useHybridAI = () => {
           console.error(`❌ [${requestId}] Invalid or empty content:`, {
             hasContent: !!result.content,
             contentType: typeof result.content,
-            contentLength: result.content?.length || 0,
-            contentPreview: result.content?.substring(0, 100)
+            contentLength: result.content?.length || 0
           });
           throw new Error('Invalid or empty analysis content received');
         }
@@ -136,8 +123,7 @@ export const useHybridAI = () => {
           model: result.model,
           contentLength: result.content.length,
           confidence: result.confidence,
-          processingTime: duration,
-          metadata: result.metadata
+          processingTime: duration
         });
 
         return {
@@ -160,13 +146,10 @@ export const useHybridAI = () => {
       return result;
 
     } catch (err: any) {
-      const endTime = performance.now();
       console.error(`💥 [${requestId}] Catch Block Error:`, {
         name: err?.name,
         message: err?.message,
-        stack: err?.stack,
-        cause: err?.cause,
-        timestamp: new Date().toISOString()
+        stack: err?.stack
       });
       
       let errorMessage = 'An unexpected error occurred during AI analysis';
