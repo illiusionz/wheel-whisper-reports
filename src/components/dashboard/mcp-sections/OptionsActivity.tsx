@@ -5,7 +5,7 @@ import { Badge } from '@/components/ui/badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
-import { TrendingUp, TrendingDown, AlertTriangle, Volume2, Loader2, Zap } from 'lucide-react';
+import { TrendingUp, TrendingDown, AlertTriangle, Volume2, Loader2, Zap, Calendar, DollarSign } from 'lucide-react';
 import { StockQuote } from '@/types/stock';
 import { useUnusualOptionsActivity } from '@/hooks/useUnusualOptionsActivity';
 import { getStockService } from '@/services/stock';
@@ -17,6 +17,40 @@ interface OptionsActivityProps {
 const OptionsActivity: React.FC<OptionsActivityProps> = ({ stockData }) => {
   const [activeTab, setActiveTab] = useState('unusual');
   const { data: unusualData, isLoading, error, refresh } = useUnusualOptionsActivity(stockData.symbol);
+
+  const formatContractName = (ticker: string, strike: number, expiration: string, contractType: 'call' | 'put') => {
+    const symbol = ticker.split(/\d/)[0] || stockData.symbol;
+    const expiryDate = new Date(expiration);
+    const monthDay = expiryDate.toLocaleDateString('en-US', { 
+      month: 'short', 
+      day: 'numeric' 
+    });
+    const typeSymbol = contractType === 'call' ? 'C' : 'P';
+    return `${symbol} ${monthDay} $${strike}${typeSymbol}`;
+  };
+
+  const formatExpiration = (expiration: string) => {
+    const date = new Date(expiration);
+    return date.toLocaleDateString('en-US', {
+      month: 'short',
+      day: 'numeric',
+      year: 'numeric'
+    });
+  };
+
+  const getDaysToExpiration = (expiration: string) => {
+    const expiryDate = new Date(expiration);
+    const today = new Date();
+    const diffTime = expiryDate.getTime() - today.getTime();
+    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+    return diffDays;
+  };
+
+  const getExpirationColor = (daysToExpiry: number) => {
+    if (daysToExpiry <= 7) return 'text-red-400';
+    if (daysToExpiry <= 30) return 'text-yellow-400';
+    return 'text-green-400';
+  };
 
   const getSentimentColor = (sentiment: string) => {
     switch (sentiment) {
@@ -151,8 +185,10 @@ const OptionsActivity: React.FC<OptionsActivityProps> = ({ stockData }) => {
                     <TableRow className="border-slate-700">
                       <TableHead className="text-slate-300">Contract</TableHead>
                       <TableHead className="text-slate-300">Strike</TableHead>
+                      <TableHead className="text-slate-300">Expiration</TableHead>
                       <TableHead className="text-slate-300">Volume</TableHead>
-                      <TableHead className="text-slate-300">Volume Ratio</TableHead>
+                      <TableHead className="text-slate-300">Vol Ratio</TableHead>
+                      <TableHead className="text-slate-300">Open Interest</TableHead>
                       <TableHead className="text-slate-300">Premium</TableHead>
                       <TableHead className="text-slate-300">Context</TableHead>
                       <TableHead className="text-slate-300">Sentiment</TableHead>
@@ -160,42 +196,62 @@ const OptionsActivity: React.FC<OptionsActivityProps> = ({ stockData }) => {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {unusualData.map((item, index) => (
-                      <TableRow key={index} className="border-slate-700 hover:bg-slate-700/50">
-                        <TableCell className="text-white font-mono text-xs">{item.ticker}</TableCell>
-                        <TableCell className="text-white font-medium">${item.strike}</TableCell>
-                        <TableCell className="text-white font-mono">{item.volume.toLocaleString()}</TableCell>
-                        <TableCell className={`font-mono ${getVolumeRatioColor(item.volumeRatio)}`}>
-                          {item.volumeRatio.toFixed(1)}x
-                        </TableCell>
-                        <TableCell className="text-green-400 font-mono">${item.price.toFixed(2)}</TableCell>
-                        <TableCell className="text-slate-300 text-sm">{item.context}</TableCell>
-                        <TableCell>
-                          <div className="flex items-center space-x-2">
-                            {getSentimentIcon(item.sentiment)}
-                            <Badge className={getSentimentColor(item.sentiment)}>
-                              {item.sentiment}
-                            </Badge>
-                          </div>
-                        </TableCell>
-                        <TableCell className="max-w-xs">
-                          {item.aiAnalysis ? (
-                            <Tooltip>
-                              <TooltipTrigger>
-                                <div className="text-blue-400 text-xs cursor-help truncate">
-                                  {item.aiAnalysis.substring(0, 50)}...
-                                </div>
-                              </TooltipTrigger>
-                              <TooltipContent className="max-w-sm bg-slate-900 border-slate-700">
-                                <p className="text-sm">{item.aiAnalysis}</p>
-                              </TooltipContent>
-                            </Tooltip>
-                          ) : (
-                            <span className="text-slate-500 text-xs">No analysis</span>
-                          )}
-                        </TableCell>
-                      </TableRow>
-                    ))}
+                    {unusualData.map((item, index) => {
+                      const daysToExpiry = getDaysToExpiration(item.expiration);
+                      return (
+                        <TableRow key={index} className="border-slate-700 hover:bg-slate-700/50">
+                          <TableCell className="text-white font-mono text-sm">
+                            {formatContractName(item.ticker, item.strike, item.expiration, item.contractType)}
+                          </TableCell>
+                          <TableCell className="text-white font-bold flex items-center">
+                            <DollarSign className="h-3 w-3 mr-1" />
+                            {item.strike.toFixed(2)}
+                          </TableCell>
+                          <TableCell className={`font-medium ${getExpirationColor(daysToExpiry)}`}>
+                            <div className="flex items-center">
+                              <Calendar className="h-3 w-3 mr-1" />
+                              <div>
+                                <div>{formatExpiration(item.expiration)}</div>
+                                <div className="text-xs text-slate-400">{daysToExpiry}d</div>
+                              </div>
+                            </div>
+                          </TableCell>
+                          <TableCell className="text-white font-mono">{item.volume.toLocaleString()}</TableCell>
+                          <TableCell className={`font-mono ${getVolumeRatioColor(item.volumeRatio)}`}>
+                            {item.volumeRatio.toFixed(1)}x
+                          </TableCell>
+                          <TableCell className="text-blue-400 font-mono">
+                            {item.openInterest ? item.openInterest.toLocaleString() : 'N/A'}
+                          </TableCell>
+                          <TableCell className="text-green-400 font-mono">${item.price.toFixed(2)}</TableCell>
+                          <TableCell className="text-slate-300 text-sm">{item.context}</TableCell>
+                          <TableCell>
+                            <div className="flex items-center space-x-2">
+                              {getSentimentIcon(item.sentiment)}
+                              <Badge className={getSentimentColor(item.sentiment)}>
+                                {item.sentiment}
+                              </Badge>
+                            </div>
+                          </TableCell>
+                          <TableCell className="max-w-xs">
+                            {item.aiAnalysis ? (
+                              <Tooltip>
+                                <TooltipTrigger>
+                                  <div className="text-blue-400 text-xs cursor-help truncate">
+                                    {item.aiAnalysis.substring(0, 50)}...
+                                  </div>
+                                </TooltipTrigger>
+                                <TooltipContent className="max-w-sm bg-slate-900 border-slate-700">
+                                  <p className="text-sm">{item.aiAnalysis}</p>
+                                </TooltipContent>
+                              </Tooltip>
+                            ) : (
+                              <span className="text-slate-500 text-xs">No analysis</span>
+                            )}
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })}
                   </TableBody>
                 </Table>
               </div>
@@ -213,7 +269,9 @@ const OptionsActivity: React.FC<OptionsActivityProps> = ({ stockData }) => {
                 <Table>
                   <TableHeader>
                     <TableRow className="border-slate-700">
+                      <TableHead className="text-slate-300">Contract</TableHead>
                       <TableHead className="text-slate-300">Strike</TableHead>
+                      <TableHead className="text-slate-300">Expiration</TableHead>
                       <TableHead className="text-slate-300">Volume</TableHead>
                       <TableHead className="text-slate-300">Ratio</TableHead>
                       <TableHead className="text-slate-300">Context</TableHead>
@@ -221,19 +279,31 @@ const OptionsActivity: React.FC<OptionsActivityProps> = ({ stockData }) => {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {bullishActivity.map((item, index) => (
-                      <TableRow key={index} className="border-slate-700 hover:bg-slate-700/50">
-                        <TableCell className="text-green-400 font-bold">${item.strike}</TableCell>
-                        <TableCell className="text-white font-mono">{item.volume.toLocaleString()}</TableCell>
-                        <TableCell className={`font-mono ${getVolumeRatioColor(item.volumeRatio)}`}>
-                          {item.volumeRatio.toFixed(1)}x
-                        </TableCell>
-                        <TableCell className="text-slate-300">{item.context}</TableCell>
-                        <TableCell className="text-sm text-slate-300 max-w-xs">
-                          {item.aiAnalysis || 'Strong upside positioning'}
-                        </TableCell>
-                      </TableRow>
-                    ))}
+                    {bullishActivity.map((item, index) => {
+                      const daysToExpiry = getDaysToExpiration(item.expiration);
+                      return (
+                        <TableRow key={index} className="border-slate-700 hover:bg-slate-700/50">
+                          <TableCell className="text-green-400 font-mono text-sm">
+                            {formatContractName(item.ticker, item.strike, item.expiration, item.contractType)}
+                          </TableCell>
+                          <TableCell className="text-green-400 font-bold">${item.strike.toFixed(2)}</TableCell>
+                          <TableCell className={`font-medium ${getExpirationColor(daysToExpiry)}`}>
+                            <div>
+                              <div>{formatExpiration(item.expiration)}</div>
+                              <div className="text-xs text-slate-400">{daysToExpiry}d</div>
+                            </div>
+                          </TableCell>
+                          <TableCell className="text-white font-mono">{item.volume.toLocaleString()}</TableCell>
+                          <TableCell className={`font-mono ${getVolumeRatioColor(item.volumeRatio)}`}>
+                            {item.volumeRatio.toFixed(1)}x
+                          </TableCell>
+                          <TableCell className="text-slate-300">{item.context}</TableCell>
+                          <TableCell className="text-sm text-slate-300 max-w-xs">
+                            {item.aiAnalysis || 'Strong upside positioning'}
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })}
                   </TableBody>
                 </Table>
               </div>
@@ -251,7 +321,9 @@ const OptionsActivity: React.FC<OptionsActivityProps> = ({ stockData }) => {
                 <Table>
                   <TableHeader>
                     <TableRow className="border-slate-700">
+                      <TableHead className="text-slate-300">Contract</TableHead>
                       <TableHead className="text-slate-300">Strike</TableHead>
+                      <TableHead className="text-slate-300">Expiration</TableHead>
                       <TableHead className="text-slate-300">Volume</TableHead>
                       <TableHead className="text-slate-300">Ratio</TableHead>
                       <TableHead className="text-slate-300">Context</TableHead>
@@ -259,19 +331,31 @@ const OptionsActivity: React.FC<OptionsActivityProps> = ({ stockData }) => {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {bearishActivity.map((item, index) => (
-                      <TableRow key={index} className="border-slate-700 hover:bg-slate-700/50">
-                        <TableCell className="text-red-400 font-bold">${item.strike}</TableCell>
-                        <TableCell className="text-white font-mono">{item.volume.toLocaleString()}</TableCell>
-                        <TableCell className={`font-mono ${getVolumeRatioColor(item.volumeRatio)}`}>
-                          {item.volumeRatio.toFixed(1)}x
-                        </TableCell>
-                        <TableCell className="text-slate-300">{item.context}</TableCell>
-                        <TableCell className="text-sm text-slate-300 max-w-xs">
-                          {item.aiAnalysis || 'Downside protection or bearish bet'}
-                        </TableCell>
-                      </TableRow>
-                    ))}
+                    {bearishActivity.map((item, index) => {
+                      const daysToExpiry = getDaysToExpiration(item.expiration);
+                      return (
+                        <TableRow key={index} className="border-slate-700 hover:bg-slate-700/50">
+                          <TableCell className="text-red-400 font-mono text-sm">
+                            {formatContractName(item.ticker, item.strike, item.expiration, item.contractType)}
+                          </TableCell>
+                          <TableCell className="text-red-400 font-bold">${item.strike.toFixed(2)}</TableCell>
+                          <TableCell className={`font-medium ${getExpirationColor(daysToExpiry)}`}>
+                            <div>
+                              <div>{formatExpiration(item.expiration)}</div>
+                              <div className="text-xs text-slate-400">{daysToExpiry}d</div>
+                            </div>
+                          </TableCell>
+                          <TableCell className="text-white font-mono">{item.volume.toLocaleString()}</TableCell>
+                          <TableCell className={`font-mono ${getVolumeRatioColor(item.volumeRatio)}`}>
+                            {item.volumeRatio.toFixed(1)}x
+                          </TableCell>
+                          <TableCell className="text-slate-300">{item.context}</TableCell>
+                          <TableCell className="text-sm text-slate-300 max-w-xs">
+                            {item.aiAnalysis || 'Downside protection or bearish bet'}
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })}
                   </TableBody>
                 </Table>
               </div>

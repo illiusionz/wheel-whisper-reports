@@ -15,6 +15,7 @@ export interface UnusualOptionsData {
   context: string;
   isUnusual: boolean;
   aiAnalysis?: string;
+  openInterest?: number;
 }
 
 export const useUnusualOptionsActivity = (symbol: string) => {
@@ -92,7 +93,7 @@ export const useUnusualOptionsActivity = (symbol: string) => {
     return [
       {
         ticker: `${stockSymbol}062724C00052000`,
-        strike: 52,
+        strike: 52.00,
         expiration: '2025-06-27',
         contractType: 'call',
         volume: 15420,
@@ -101,11 +102,12 @@ export const useUnusualOptionsActivity = (symbol: string) => {
         sentiment: 'Very Bullish',
         context: 'Massive call buying',
         isUnusual: true,
+        openInterest: 8420,
         aiAnalysis: 'This unusual call activity suggests strong bullish sentiment with traders betting on a significant upside move above $52. The 8.7x volume spike indicates institutional or informed money flow.'
       },
       {
         ticker: `${stockSymbol}062724P00048000`,
-        strike: 48,
+        strike: 48.00,
         expiration: '2025-06-27',
         contractType: 'put',
         volume: 9800,
@@ -114,11 +116,12 @@ export const useUnusualOptionsActivity = (symbol: string) => {
         sentiment: 'Bearish',
         context: 'Heavy put activity',
         isUnusual: true,
+        openInterest: 12450,
         aiAnalysis: 'Significant put buying suggests either hedging activity or bearish positioning. The concentration at $48 strike indicates this is a key support level that traders are concerned about.'
       },
       {
         ticker: `${stockSymbol}070324C00055000`,
-        strike: 55,
+        strike: 55.00,
         expiration: '2025-07-03',
         contractType: 'call',
         volume: 6750,
@@ -126,7 +129,34 @@ export const useUnusualOptionsActivity = (symbol: string) => {
         price: 1.20,
         sentiment: 'Bullish',
         context: 'Large call sweep',
-        isUnusual: true
+        isUnusual: true,
+        openInterest: 5680
+      },
+      {
+        ticker: `${stockSymbol}070324P00045000`,
+        strike: 45.00,
+        expiration: '2025-07-03',
+        contractType: 'put',
+        volume: 4200,
+        volumeRatio: 3.8,
+        price: 0.95,
+        sentiment: 'Moderately Bearish',
+        context: 'Protective put buying',
+        isUnusual: true,
+        openInterest: 7890
+      },
+      {
+        ticker: `${stockSymbol}071824C00058000`,
+        strike: 58.00,
+        expiration: '2025-07-18',
+        contractType: 'call',
+        volume: 3850,
+        volumeRatio: 2.9,
+        price: 1.75,
+        sentiment: 'Bullish',
+        context: 'Bullish positioning',
+        isUnusual: true,
+        openInterest: 3420
       }
     ];
   };
