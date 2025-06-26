@@ -53,19 +53,19 @@ export const useHybridAI = () => {
         analysisType: requestPayload.analysisType,
         symbol: requestPayload.symbol,
         forceModel: requestPayload.forceModel,
-        dataSize: JSON.stringify(requestPayload.data).length
+        dataSize: JSON.stringify(requestPayload.data).length,
+        fullPayload: requestPayload
       });
       
       // Use circuit breaker to execute the request
       const result = await circuitBreaker.execute(async () => {
         const startTime = performance.now();
         
-        console.log(`📡 [${requestId}] Invoking Supabase Edge Function...`);
+        console.log(`📡 [${requestId}] Invoking Supabase Edge Function with payload:`, JSON.stringify(requestPayload));
+        
+        // Ensure we're sending the request body properly
         const { data: result, error: functionError } = await supabase.functions.invoke('hybrid-ai-analysis', {
-          body: requestPayload,
-          headers: {
-            'Content-Type': 'application/json',
-          }
+          body: requestPayload
         });
 
         const endTime = performance.now();
@@ -76,7 +76,8 @@ export const useHybridAI = () => {
           hasError: !!functionError,
           hasResult: !!result,
           resultType: typeof result,
-          errorDetails: functionError
+          errorDetails: functionError,
+          resultContent: result
         });
 
         if (functionError) {
@@ -114,7 +115,8 @@ export const useHybridAI = () => {
           console.error(`❌ [${requestId}] Invalid or empty content:`, {
             hasContent: !!result.content,
             contentType: typeof result.content,
-            contentLength: result.content?.length || 0
+            contentLength: result.content?.length || 0,
+            fullResult: result
           });
           throw new Error('Invalid or empty analysis content received');
         }
