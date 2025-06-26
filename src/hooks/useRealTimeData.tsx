@@ -1,9 +1,10 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
-import { getStockService } from '@/services/stock';
+
+import { useState, useEffect, useRef } from 'react';
 import { StockQuote } from '@/types/stock';
-import { useToast } from '@/hooks/use-toast';
-import { useErrorHandler } from '@/hooks/useErrorHandler';
-import { MarketHoursService } from '@/services/market/MarketHoursService';
+import { useMarketAwareRefresh } from './realtime/useMarketAwareRefresh';
+import { useRateLimitedFetch } from './realtime/useRateLimitedFetch';
+import { useVisibilityHandler } from './realtime/useVisibilityHandler';
+import { useRealTimeDataFetch } from './realtime/useRealTimeDataFetch';
 
 interface UseRealTimeDataOptions {
   symbol?: string;
@@ -39,156 +40,72 @@ export const useRealTimeData = (options: UseRealTimeDataOptions): UseRealTimeDat
     respectMarketHours = true
   } = options;
 
-  const [data, setData] = useState<StockQuote | StockQuote[] | null>(null);
-  const [isLoading, setIsLoading] = useState(false);
-  const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
-  const [isAutoRefreshActive, setIsAutoRefreshActive] = useState(enableAutoRefresh);
-  const [marketStatus, setMarketStatus] = useState<'open' | 'closed' | 'pre-market' | 'after-hours'>('closed');
-
   const intervalRef = useRef<NodeJS.Timeout | null>(null);
   const mountedRef = useRef(true);
-  const lastFetchRef = useRef<number>(0);
-  const { toast } = useToast();
 
-  const { error, handleError, clearError, retry, canRetry } = useErrorHandler({
-    maxRetries: 3,
+  // Use the specialized hooks
+  const { canMakeFetch, recordFetch } = useRateLimitedFetch({ refreshInterval });
+  
+  const { data, isLoading, error, lastUpdated, fetchData, refresh, retryConnection } = useRealTimeDataFetch({
+    symbol,
+    symbols,
+    onDataUpdate,
     onError,
-    showToast: false
+    respectMarketHours
   });
 
-  // Update market status
-  useEffect(() => {
-    const updateMarketStatus = () => {
-      const marketHours = MarketHoursService.getCurrentMarketHours();
-      setMarketStatus(marketHours.currentStatus);
-    };
-
-    updateMarketStatus();
-    const interval = setInterval(updateMarketStatus, 60000); // Update every minute
-
-    return () => clearInterval(interval);
-  }, []);
-
-  const fetchData = useCallback(async (forceRefresh = false) => {
-    if (!symbol && !symbols?.length) return;
+  const rateLimitedFetchData = async (forceRefresh = false) => {
     if (!mountedRef.current) return;
+    if (!canMakeFetch(forceRefresh)) return;
+    
+    recordFetch();
+    await fetchData(forceRefresh);
+  };
 
-    // Check market hours before making API calls
-    if (respectMarketHours && !forceRefresh && !MarketHoursService.shouldMakeApiCall()) {
-      console.log('Skipping API call - market is closed');
-      return;
-    }
+  const { 
+    marketStatus, 
+    isAutoRefreshActive, 
+    startAutoRefresh: startMarketAwareRefresh, 
+    stopAutoRefresh: stopMarketAwareRefresh 
+  } = useMarketAwareRefresh({
+    respectMarketHours,
+    refreshInterval,
+    onRefresh: () => rateLimitedFetchData(false),
+    enableAutoRefresh,
+    symbol,
+    symbols
+  });
 
-    // Prevent rapid successive calls
-    const now = Date.now();
-    const minInterval = Math.min(refreshInterval * 0.1, 5000);
-    if (!forceRefresh && now - lastFetchRef.current < minInterval) {
-      console.log('Skipping fetch due to rate limiting');
-      return;
-    }
-
-    setIsLoading(true);
-    clearError();
-    lastFetchRef.current = now;
-
-    try {
-      const stockService = getStockService();
-      let result: StockQuote | StockQuote[];
-
-      if (symbols?.length) {
-        result = await stockService.getMultipleQuotes(symbols, forceRefresh);
-        console.log(`Fetched data for ${symbols.length} symbols`);
-      } else if (symbol) {
-        result = await stockService.getQuote(symbol, forceRefresh);
-        console.log(`Fetched data for ${symbol}`);
-      } else {
-        throw new Error('No symbol or symbols provided');
-      }
-
-      if (!mountedRef.current) return;
-
-      setData(result);
-      setLastUpdated(new Date());
-      onDataUpdate?.(result);
-      
-    } catch (err) {
-      if (!mountedRef.current) return;
-      
-      const error = err instanceof Error ? err : new Error('Failed to fetch stock data');
-      handleError(error, 'real-time data fetch');
-      
-      // Show market-aware error messages
-      if (respectMarketHours && !MarketHoursService.shouldMakeApiCall()) {
-        toast({
-          title: "Market Closed",
-          description: MarketHoursService.getMarketStatusMessage(),
-          variant: "default",
-        });
-      } else if (!error.message.includes('already in progress') && 
-          !error.message.includes('circuit breaker') &&
-          !error.message.includes('rate limit')) {
-        toast({
-          title: "Data Update Failed",
-          description: `Failed to update ${symbol || 'stock data'}. ${canRetry ? 'Will retry automatically.' : 'Please try again later.'}`,
-          variant: "destructive",
-        });
-      }
-    } finally {
-      if (mountedRef.current) {
-        setIsLoading(false);
-      }
-    }
-  }, [symbol, symbols, onDataUpdate, handleError, clearError, toast, refreshInterval, canRetry, respectMarketHours]);
-
-  const refresh = useCallback(async () => {
-    await fetchData(true);
-  }, [fetchData]);
-
-  const retryConnection = useCallback(async () => {
-    if (canRetry) {
-      await retry(() => fetchData(true));
-    }
-  }, [retry, fetchData, canRetry]);
-
-  const startAutoRefresh = useCallback(() => {
+  const startAutoRefresh = () => {
     if (intervalRef.current) {
       clearInterval(intervalRef.current);
     }
+    intervalRef.current = startMarketAwareRefresh();
+  };
 
-    setIsAutoRefreshActive(true);
-    
-    // Add jitter to prevent synchronized requests
-    const jitteredInterval = refreshInterval + (Math.random() * 5000);
-    intervalRef.current = setInterval(() => fetchData(false), jitteredInterval);
-    
-    console.log(`Auto-refresh started for ${symbol || symbols?.join(', ')} every ~${Math.round(jitteredInterval/1000)}s`);
-  }, [fetchData, refreshInterval, symbol, symbols]);
+  const stopAutoRefresh = () => {
+    stopMarketAwareRefresh(intervalRef.current);
+    intervalRef.current = null;
+  };
 
-  const stopAutoRefresh = useCallback(() => {
-    if (intervalRef.current) {
-      clearInterval(intervalRef.current);
-      intervalRef.current = null;
-    }
-    setIsAutoRefreshActive(false);
-    
-    console.log(`Auto-refresh stopped for ${symbol || symbols?.join(', ')}`);
-  }, [symbol, symbols]);
+  // Handle page visibility changes
+  useVisibilityHandler({
+    isAutoRefreshActive,
+    enableAutoRefresh,
+    startAutoRefresh,
+    stopAutoRefresh,
+    intervalRef
+  });
 
   // Initial data fetch
   useEffect(() => {
-    fetchData(false);
-  }, [fetchData]);
+    rateLimitedFetchData(false);
+  }, [symbol, symbols]);
 
-  // Auto-refresh management with market hours awareness
+  // Auto-refresh management
   useEffect(() => {
     if (enableAutoRefresh && (symbol || symbols?.length)) {
-      // Only start auto-refresh if market hours allow it or if we're not respecting market hours
-      if (!respectMarketHours || MarketHoursService.shouldMakeApiCall()) {
-        startAutoRefresh();
-      } else {
-        console.log('Auto-refresh disabled - market is closed');
-        stopAutoRefresh();
-      }
+      startAutoRefresh();
     }
 
     return () => {
@@ -196,7 +113,7 @@ export const useRealTimeData = (options: UseRealTimeDataOptions): UseRealTimeDat
         clearInterval(intervalRef.current);
       }
     };
-  }, [enableAutoRefresh, startAutoRefresh, stopAutoRefresh, symbol, symbols, respectMarketHours, marketStatus]);
+  }, [enableAutoRefresh, symbol, symbols, marketStatus]);
 
   // Cleanup on unmount
   useEffect(() => {
@@ -207,20 +124,6 @@ export const useRealTimeData = (options: UseRealTimeDataOptions): UseRealTimeDat
       }
     };
   }, []);
-
-  // Page visibility handling to pause/resume auto-refresh
-  useEffect(() => {
-    const handleVisibilityChange = () => {
-      if (document.hidden) {
-        stopAutoRefresh();
-      } else if (enableAutoRefresh && isAutoRefreshActive) {
-        startAutoRefresh();
-      }
-    };
-
-    document.addEventListener('visibilitychange', handleVisibilityChange);
-    return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
-  }, [enableAutoRefresh, isAutoRefreshActive, startAutoRefresh, stopAutoRefresh]);
 
   return {
     data,
