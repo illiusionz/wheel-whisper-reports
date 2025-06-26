@@ -36,7 +36,7 @@ export const useUnusualOptionsActivity = (symbol: string) => {
       // Reset circuit breaker if needed
       if (stockService.getCircuitBreakerStatus && stockService.resetCircuitBreaker) {
         const status = stockService.getCircuitBreakerStatus();
-        if (status.isOpen) {
+        if (status.state === 'OPEN') {
           console.log('Resetting circuit breaker for options activity');
           stockService.resetCircuitBreaker();
         }
@@ -47,7 +47,7 @@ export const useUnusualOptionsActivity = (symbol: string) => {
         
         try {
           // Try to get real unusual activity data from Polygon
-          const unusualData = await (stockService as any).getUnusualOptionsActivity?.(symbol);
+          const unusualData = await stockService.getUnusualOptionsActivity(symbol);
           
           if (unusualData && unusualData.length > 0) {
             console.log(`Found ${unusualData.length} unusual options contracts for ${symbol}`);

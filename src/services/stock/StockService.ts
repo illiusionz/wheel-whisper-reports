@@ -1,3 +1,4 @@
+
 import { StockProvider, StockQuote, StockServiceConfig } from '@/types/stock';
 import { FinnhubProvider } from './providers/FinnhubProvider';
 import { AlphaVantageProvider } from './providers/AlphaVantageProvider';
@@ -131,6 +132,15 @@ export class StockService {
       return await this.provider.getWheelStrategyData(validatedSymbol, targetStrike);
     }
     throw new Error('Wheel strategy data requires Polygon provider');
+  }
+
+  async getUnusualOptionsActivity(symbol: string) {
+    const validatedSymbol = validateStockSymbol(sanitizeSymbol(symbol));
+    
+    if (this.provider instanceof PolygonProvider) {
+      return await this.provider.getUnusualOptionsActivity(validatedSymbol);
+    }
+    throw new Error('Unusual options activity requires Polygon provider');
   }
 
   async getMarketStatus() {

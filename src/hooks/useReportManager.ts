@@ -24,7 +24,7 @@ export const useReportManager = () => {
         // Reset circuit breaker if it's open
         if (stockService.getCircuitBreakerStatus && stockService.resetCircuitBreaker) {
           const status = stockService.getCircuitBreakerStatus();
-          if (status.isOpen) {
+          if (status.state === 'OPEN') {
             console.log('Resetting circuit breaker for report refresh');
             stockService.resetCircuitBreaker();
           }
@@ -97,7 +97,7 @@ export const useReportManager = () => {
       // Reset circuit breaker if needed
       if (stockService.getCircuitBreakerStatus && stockService.resetCircuitBreaker) {
         const status = stockService.getCircuitBreakerStatus();
-        if (status.isOpen) {
+        if (status.state === 'OPEN') {
           console.log('Resetting circuit breaker for refresh all');
           stockService.resetCircuitBreaker();
         }
