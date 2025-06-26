@@ -33,6 +33,10 @@ export const useUnusualOptionsActivity = (symbol: string) => {
     try {
       const stockService = getStockService();
       
+      // First get the current stock price
+      const stockQuote = await stockService.getQuote(symbol);
+      const currentPrice = stockQuote.price;
+      
       if (stockService.hasAdvancedFeatures()) {
         // Try to get real unusual activity data
         const unusualData = await (stockService as any).getUnusualOptionsActivity?.(symbol);
@@ -69,90 +73,108 @@ export const useUnusualOptionsActivity = (symbol: string) => {
           const remainingData = unusualData.slice(3);
           setData([...enhancedData, ...remainingData]);
         } else {
-          // Fallback to mock unusual activity data
-          setData(generateMockUnusualActivity(symbol));
+          // Fallback to mock unusual activity data with actual stock price
+          setData(generateMockUnusualActivity(symbol, currentPrice));
         }
         
       } else {
-        // Use mock data for providers without advanced features
-        setData(generateMockUnusualActivity(symbol));
+        // Use mock data for providers without advanced features, with actual stock price
+        setData(generateMockUnusualActivity(symbol, currentPrice));
       }
       
     } catch (err) {
       console.error('Error fetching unusual options activity:', err);
       setError('Failed to fetch unusual options activity');
-      setData(generateMockUnusualActivity(symbol));
+      // Still generate mock data with a reasonable fallback price
+      setData(generateMockUnusualActivity(symbol, 25)); // Fallback price for SOXL-like stocks
     } finally {
       setIsLoading(false);
     }
   };
 
-  const generateMockUnusualActivity = (stockSymbol: string): UnusualOptionsData[] => {
-    const basePrice = 50; // Mock base price
+  const generateMockUnusualActivity = (stockSymbol: string, stockPrice: number): UnusualOptionsData[] => {
+    console.log(`Generating mock options data for ${stockSymbol} at price $${stockPrice}`);
+    
+    // Generate realistic strikes around the current stock price
+    const nearMoneyStrikes = [
+      stockPrice * 0.90,  // 10% OTM put
+      stockPrice * 0.95,  // 5% OTM put
+      stockPrice,         // ATM
+      stockPrice * 1.05,  // 5% OTM call
+      stockPrice * 1.10   // 10% OTM call
+    ].map(strike => Math.round(strike * 2) / 2); // Round to nearest $0.50
+
+    // Generate realistic premiums based on moneyness
+    const calculatePremium = (strike: number, contractType: 'call' | 'put', stockPrice: number) => {
+      const moneyness = contractType === 'call' ? strike / stockPrice : stockPrice / strike;
+      const timeValue = Math.random() * 2 + 0.5; // Random time value between $0.50-$2.50
+      const intrinsicValue = Math.max(0, contractType === 'call' ? stockPrice - strike : strike - stockPrice);
+      return Math.round((intrinsicValue + timeValue) * 100) / 100;
+    };
     
     return [
       {
-        ticker: `${stockSymbol}062724C00052000`,
-        strike: 52.00,
+        ticker: `${stockSymbol}062724C${String(Math.round(nearMoneyStrikes[4] * 1000)).padStart(8, '0')}`,
+        strike: nearMoneyStrikes[4],
         expiration: '2025-06-27',
         contractType: 'call',
         volume: 15420,
         volumeRatio: 8.7,
-        price: 2.45,
+        price: calculatePremium(nearMoneyStrikes[4], 'call', stockPrice),
         sentiment: 'Very Bullish',
         context: 'Massive call buying',
         isUnusual: true,
         openInterest: 8420,
-        aiAnalysis: 'This unusual call activity suggests strong bullish sentiment with traders betting on a significant upside move above $52. The 8.7x volume spike indicates institutional or informed money flow.'
+        aiAnalysis: `This unusual call activity at $${nearMoneyStrikes[4]} strike suggests strong bullish sentiment with traders betting on a significant upside move. The 8.7x volume spike indicates institutional or informed money flow.`
       },
       {
-        ticker: `${stockSymbol}062724P00048000`,
-        strike: 48.00,
+        ticker: `${stockSymbol}062724P${String(Math.round(nearMoneyStrikes[0] * 1000)).padStart(8, '0')}`,
+        strike: nearMoneyStrikes[0],
         expiration: '2025-06-27',
         contractType: 'put',
         volume: 9800,
         volumeRatio: 5.2,
-        price: 1.85,
+        price: calculatePremium(nearMoneyStrikes[0], 'put', stockPrice),
         sentiment: 'Bearish',
         context: 'Heavy put activity',
         isUnusual: true,
         openInterest: 12450,
-        aiAnalysis: 'Significant put buying suggests either hedging activity or bearish positioning. The concentration at $48 strike indicates this is a key support level that traders are concerned about.'
+        aiAnalysis: `Significant put buying at $${nearMoneyStrikes[0]} suggests either hedging activity or bearish positioning. This strike represents a key support level that traders are concerned about.`
       },
       {
-        ticker: `${stockSymbol}070324C00055000`,
-        strike: 55.00,
+        ticker: `${stockSymbol}070324C${String(Math.round(nearMoneyStrikes[3] * 1000)).padStart(8, '0')}`,
+        strike: nearMoneyStrikes[3],
         expiration: '2025-07-03',
         contractType: 'call',
         volume: 6750,
         volumeRatio: 4.1,
-        price: 1.20,
+        price: calculatePremium(nearMoneyStrikes[3], 'call', stockPrice),
         sentiment: 'Bullish',
         context: 'Large call sweep',
         isUnusual: true,
         openInterest: 5680
       },
       {
-        ticker: `${stockSymbol}070324P00045000`,
-        strike: 45.00,
+        ticker: `${stockSymbol}070324P${String(Math.round(nearMoneyStrikes[1] * 1000)).padStart(8, '0')}`,
+        strike: nearMoneyStrikes[1],
         expiration: '2025-07-03',
         contractType: 'put',
         volume: 4200,
         volumeRatio: 3.8,
-        price: 0.95,
+        price: calculatePremium(nearMoneyStrikes[1], 'put', stockPrice),
         sentiment: 'Moderately Bearish',
         context: 'Protective put buying',
         isUnusual: true,
         openInterest: 7890
       },
       {
-        ticker: `${stockSymbol}071824C00058000`,
-        strike: 58.00,
+        ticker: `${stockSymbol}071824C${String(Math.round((stockPrice * 1.15) * 1000)).padStart(8, '0')}`,
+        strike: Math.round((stockPrice * 1.15) * 2) / 2,
         expiration: '2025-07-18',
         contractType: 'call',
         volume: 3850,
         volumeRatio: 2.9,
-        price: 1.75,
+        price: calculatePremium(Math.round((stockPrice * 1.15) * 2) / 2, 'call', stockPrice),
         sentiment: 'Bullish',
         context: 'Bullish positioning',
         isUnusual: true,
