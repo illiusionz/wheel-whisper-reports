@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -154,7 +155,7 @@ const OptionsActivity: React.FC<OptionsActivityProps> = ({ stockData }) => {
       probabilityITM: Math.round(probabilityITM),
       annualizedReturn: Math.round(annualizedReturn * 10) / 10,
       contractType: option.contract_type,
-      ticker: option.ticker || `${stockData.symbol}062724C${price + 2}`
+      ticker: option.ticker || `${stockData.symbol}062724C${currentPrice + 2}`
     };
   };
 
