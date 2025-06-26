@@ -80,7 +80,8 @@ export const useRealTimeData = (options: UseRealTimeDataOptions): UseRealTimeDat
     if (intervalRef.current) {
       clearInterval(intervalRef.current);
     }
-    intervalRef.current = startMarketAwareRefresh();
+    const newIntervalId = startMarketAwareRefresh();
+    intervalRef.current = newIntervalId;
   };
 
   const stopAutoRefresh = () => {
@@ -92,7 +93,11 @@ export const useRealTimeData = (options: UseRealTimeDataOptions): UseRealTimeDat
   useVisibilityHandler({
     isAutoRefreshActive,
     enableAutoRefresh,
-    startAutoRefresh,
+    startAutoRefresh: () => {
+      const newIntervalId = startMarketAwareRefresh();
+      intervalRef.current = newIntervalId;
+      return newIntervalId;
+    },
     stopAutoRefresh,
     intervalRef
   });
