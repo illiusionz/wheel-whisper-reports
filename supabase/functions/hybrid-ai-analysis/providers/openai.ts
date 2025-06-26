@@ -1,14 +1,25 @@
 
-import { AIResponse } from './claude.ts'
+import { getAPIKey } from '../utils/config.ts';
 
-export async function callOpenAIAPI(apiKey: string, prompt: string, maxTokens: number): Promise<AIResponse> {
-  console.log('=== OPENAI API CALL START ===')
-  console.log('API Key length:', apiKey.length)
-  console.log('Prompt length:', prompt.length)
-  console.log('Max tokens:', maxTokens)
+export interface AIResponse {
+  content: string;
+  confidence?: number;
+  metadata?: any;
+}
+
+export const callOpenAI = async (prompt: string, options: {
+  maxTokens?: number;
+  temperature?: number;
+  model?: string;
+} = {}): Promise<AIResponse> => {
+  const { maxTokens = 2000, temperature = 0.3, model = 'gpt-4o-mini' } = options;
+  
+  console.log('🤖 Calling OpenAI API:', { model, maxTokens, temperature });
+  
+  const { key: apiKey } = getAPIKey('openai');
   
   const requestBody = {
-    model: 'gpt-4o-mini',
+    model,
     messages: [
       {
         role: 'system',
@@ -19,9 +30,9 @@ export async function callOpenAIAPI(apiKey: string, prompt: string, maxTokens: n
         content: prompt
       }
     ],
-    temperature: 0.3,
+    temperature,
     max_tokens: Math.min(maxTokens, 4000),
-  }
+  };
 
   const response = await fetch('https://api.openai.com/v1/chat/completions', {
     method: 'POST',
@@ -30,24 +41,28 @@ export async function callOpenAIAPI(apiKey: string, prompt: string, maxTokens: n
       'Content-Type': 'application/json',
     },
     body: JSON.stringify(requestBody),
-  })
+  });
 
-  console.log('OpenAI response status:', response.status)
+  console.log('📊 OpenAI response status:', response.status);
 
   if (!response.ok) {
-    const errorText = await response.text()
-    console.error(`OpenAI API error ${response.status}:`, errorText)
-    throw new Error(`OpenAI API error: ${response.status} - ${errorText}`)
+    const errorText = await response.text();
+    console.error(`❌ OpenAI API error ${response.status}:`, errorText);
+    throw new Error(`OpenAI API error: ${response.status} - ${errorText}`);
   }
 
-  const data = await response.json()
-  console.log('OpenAI API response received successfully')
+  const data = await response.json();
+  const content = data.choices[0].message.content || '';
   
-  const content = data.choices[0].message.content || ''
-  console.log('OpenAI content length:', content.length)
+  console.log('✅ OpenAI content length:', content.length);
   
   return {
     content,
-    confidence: 0.82
-  }
-}
+    confidence: 0.82,
+    metadata: {
+      model,
+      usage: data.usage,
+      finishReason: data.choices[0].finish_reason
+    }
+  };
+};

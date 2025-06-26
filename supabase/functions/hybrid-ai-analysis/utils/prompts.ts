@@ -1,6 +1,6 @@
 
-export function buildContextPrompt(analysisType: string, symbol: string, data: any): string {
-  const baseContext = `You are an expert financial analyst providing detailed analysis for ${symbol}.`
+export const generatePrompt = (analysisType: string, symbol: string, data: any): string => {
+  const baseContext = `You are an expert financial analyst providing detailed analysis for ${symbol}.`;
   
   switch (analysisType) {
     case 'technical':
@@ -26,7 +26,7 @@ Provide comprehensive technical analysis for ${symbol}:
 - Risk management suggestions
 - Price targets and stop losses
 
-Provide specific, actionable technical analysis with clear insights.`
+Provide specific, actionable technical analysis with clear insights.`;
 
     case 'sentiment':
       return `${baseContext}
@@ -52,7 +52,7 @@ Provide market sentiment analysis for ${symbol}:
 - Institutional vs retail sentiment
 - Fear & greed indicators
 
-Provide comprehensive sentiment analysis with specific insights.`
+Provide comprehensive sentiment analysis with specific insights.`;
 
     case 'options':
       return `${baseContext}
@@ -78,7 +78,7 @@ Provide options strategy analysis:
 - Exit strategies
 - Hedging considerations
 
-Give specific options strategies with actionable recommendations.`
+Give specific options strategies with actionable recommendations.`;
 
     case 'risk':
       return `${baseContext}
@@ -104,13 +104,13 @@ Provide risk assessment:
 - Diversification strategies
 - Hedging approaches
 
-Provide detailed risk analysis with mitigation strategies.`
+Provide detailed risk analysis with mitigation strategies.`;
 
     default:
       return `${baseContext}
       
 Analyze ${symbol} with current data: ${JSON.stringify(data, null, 2)}
       
-Provide comprehensive financial analysis with specific insights and actionable recommendations.`
+Provide comprehensive financial analysis with specific insights and actionable recommendations.`;
   }
-}
+};
