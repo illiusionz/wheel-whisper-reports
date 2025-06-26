@@ -2,6 +2,7 @@
 import { useState, useEffect } from 'react';
 import { getStockService } from '@/services/stock';
 import { useAIAnalysis } from './useAIAnalysis';
+import { useHistoricalOptionsActivity } from './useHistoricalOptionsActivity';
 
 export interface UnusualOptionsData {
   ticker: string;
@@ -23,6 +24,7 @@ export const useUnusualOptionsActivity = (symbol: string) => {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const { getAIAnalysis } = useAIAnalysis();
+  const { saveUnusualActivity, weeklySentiment, historicalData } = useHistoricalOptionsActivity(symbol);
 
   const fetchUnusualActivity = async () => {
     if (!symbol || symbol === 'Select a stock') return;
@@ -82,7 +84,19 @@ export const useUnusualOptionsActivity = (symbol: string) => {
             
             // Add remaining items without AI analysis
             const remainingData = unusualData.slice(3);
-            setData([...enhancedData, ...remainingData]);
+            const finalData = [...enhancedData, ...remainingData];
+            
+            setData(finalData);
+            
+            // Save to persistent storage
+            try {
+              await saveUnusualActivity(finalData);
+              console.log(`Saved ${finalData.length} unusual activities to database`);
+            } catch (saveError) {
+              console.error('Failed to save unusual activity to database:', saveError);
+              // Don't fail the entire operation if save fails
+            }
+            
           } else {
             console.log(`No unusual options activity found for ${symbol} - this is normal`);
             // This is normal behavior, not an error - just set empty data
@@ -117,6 +131,9 @@ export const useUnusualOptionsActivity = (symbol: string) => {
     data,
     isLoading,
     error,
-    refresh: fetchUnusualActivity
+    refresh: fetchUnusualActivity,
+    // Expose historical data from the historical hook
+    weeklySentiment,
+    historicalData
   };
 };

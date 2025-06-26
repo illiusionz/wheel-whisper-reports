@@ -1,4 +1,3 @@
-
 import { StockProvider, StockQuote, StockServiceConfig } from '@/types/stock';
 import { FinnhubProvider } from './providers/FinnhubProvider';
 import { AlphaVantageProvider } from './providers/AlphaVantageProvider';
@@ -34,7 +33,7 @@ export class StockService {
     }
   }
 
-  async getQuote(symbol: string): Promise<StockQuote> {
+  async getQuote(symbol: string, forceRefresh?: boolean): Promise<StockQuote> {
     // Validate and sanitize input
     const sanitizedSymbol = sanitizeSymbol(symbol);
     const validatedSymbol = validateStockSymbol(sanitizedSymbol);
@@ -104,6 +103,21 @@ export class StockService {
   switchProvider(type: StockServiceConfig['provider'], apiKey?: string) {
     this.provider = this.createProvider(type, apiKey);
     console.log(`Switched to ${this.provider.name} provider`);
+  }
+
+  // Circuit breaker methods
+  getCircuitBreakerStatus() {
+    if (this.provider instanceof PolygonProvider) {
+      return this.provider.getCircuitBreakerStatus?.() || { state: 'CLOSED' };
+    }
+    return { state: 'CLOSED' };
+  }
+
+  resetCircuitBreaker() {
+    if (this.provider instanceof PolygonProvider && this.provider.resetCircuitBreaker) {
+      this.provider.resetCircuitBreaker();
+      console.log('Circuit breaker reset');
+    }
   }
 
   // Advanced Polygon-specific methods

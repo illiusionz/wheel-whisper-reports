@@ -68,7 +68,7 @@ export const useReportManager = () => {
               stockOverview: { stockData },
               technicalSnapshot: {},
               expectedClosing: {},
-              optionsActivity: {},
+              optionsActivity: {}, // This will now automatically save to persistent storage
               wheelLadder: { wheelData },
               executionTiming: {},
               fundamentals: {},
@@ -80,6 +80,8 @@ export const useReportManager = () => {
             }
           }
         }));
+
+        console.log(`Report refreshed for ${targetSymbol} - unusual options activity will be automatically tracked`);
       }
     } catch (error) {
       console.error('Error refreshing report:', error);
@@ -122,7 +124,9 @@ export const useReportManager = () => {
             lastUpdated: new Date().toISOString(),
             stockData,
             wheelData,
-            sections: {}
+            sections: {
+              optionsActivity: {} // Will be populated by the OptionsActivity component with persistent data
+            }
           };
         } catch (error) {
           console.error(`Error fetching data for ${stock.symbol}:`, error);
@@ -131,6 +135,7 @@ export const useReportManager = () => {
       }
       
       setReports(newReports);
+      console.log(`Refreshed reports for ${Object.keys(newReports).length} symbols - unusual options data will be tracked persistently`);
     } catch (error) {
       console.error('Error refreshing all reports:', error);
     } finally {

@@ -63,6 +63,69 @@ export type Database = {
         }
         Relationships: []
       }
+      unusual_options_activity: {
+        Row: {
+          ai_analysis: string | null
+          context: string
+          contract_type: string
+          created_at: string
+          detected_at: string
+          expiration: string
+          id: string
+          is_unusual: boolean
+          open_interest: number | null
+          price: number
+          sentiment: string
+          strike: number
+          symbol: string
+          updated_at: string
+          user_id: string
+          volume: number
+          volume_ratio: number
+          week_start: string
+        }
+        Insert: {
+          ai_analysis?: string | null
+          context: string
+          contract_type: string
+          created_at?: string
+          detected_at?: string
+          expiration: string
+          id?: string
+          is_unusual?: boolean
+          open_interest?: number | null
+          price: number
+          sentiment: string
+          strike: number
+          symbol: string
+          updated_at?: string
+          user_id: string
+          volume: number
+          volume_ratio: number
+          week_start: string
+        }
+        Update: {
+          ai_analysis?: string | null
+          context?: string
+          contract_type?: string
+          created_at?: string
+          detected_at?: string
+          expiration?: string
+          id?: string
+          is_unusual?: boolean
+          open_interest?: number | null
+          price?: number
+          sentiment?: string
+          strike?: number
+          symbol?: string
+          updated_at?: string
+          user_id?: string
+          volume?: number
+          volume_ratio?: number
+          week_start?: string
+        }
+        Relationships: []
+      }
       user_settings: {
         Row: {
           created_at: string
@@ -129,12 +192,76 @@ export type Database = {
         }
         Relationships: []
       }
+      weekly_options_sentiment: {
+        Row: {
+          bearish_count: number
+          bearish_volume: number
+          bullish_count: number
+          bullish_volume: number
+          created_at: string
+          dominant_sentiment: string
+          id: string
+          key_strikes: Json | null
+          sentiment_strength: number
+          symbol: string
+          total_unusual_count: number
+          updated_at: string
+          user_id: string
+          week_end: string
+          week_start: string
+          week_summary: string | null
+        }
+        Insert: {
+          bearish_count?: number
+          bearish_volume?: number
+          bullish_count?: number
+          bullish_volume?: number
+          created_at?: string
+          dominant_sentiment: string
+          id?: string
+          key_strikes?: Json | null
+          sentiment_strength?: number
+          symbol: string
+          total_unusual_count?: number
+          updated_at?: string
+          user_id: string
+          week_end: string
+          week_start: string
+          week_summary?: string | null
+        }
+        Update: {
+          bearish_count?: number
+          bearish_volume?: number
+          bullish_count?: number
+          bullish_volume?: number
+          created_at?: string
+          dominant_sentiment?: string
+          id?: string
+          key_strikes?: Json | null
+          sentiment_strength?: number
+          symbol?: string
+          total_unusual_count?: number
+          updated_at?: string
+          user_id?: string
+          week_end?: string
+          week_start?: string
+          week_summary?: string | null
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
     }
     Functions: {
-      [_ in never]: never
+      get_week_end: {
+        Args: { input_date: string }
+        Returns: string
+      }
+      get_week_start: {
+        Args: { input_date: string }
+        Returns: string
+      }
     }
     Enums: {
       [_ in never]: never
