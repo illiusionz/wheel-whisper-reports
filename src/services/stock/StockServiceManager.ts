@@ -16,9 +16,9 @@ const PROVIDER_RATE_LIMITS = {
     cacheTTL: 15000 // 15 seconds cache
   },
   'polygon': {
-    requestsPerMinute: 300, // Increased from 5 to 300
-    burstLimit: 100, // Increased from 5 to 100
-    cacheTTL: 5000 // Reduced from 15000 to 5000 (5 seconds cache for fresher data)
+    requestsPerMinute: 300,
+    burstLimit: 100,
+    cacheTTL: 5000 // 5 seconds cache for fresher data
   },
   'mock': {
     requestsPerMinute: 1000,
@@ -42,11 +42,25 @@ export class StockServiceManager {
   async getQuote(symbol: string, forceRefresh = false): Promise<StockQuote> {
     const key = `quote-${symbol}`;
     
-    return this.rateLimiter.executeRequest(
-      key,
-      () => this.stockService.getQuote(symbol),
-      forceRefresh
-    );
+    try {
+      return await this.rateLimiter.executeRequest(
+        key,
+        () => this.stockService.getQuote(symbol),
+        forceRefresh
+      );
+    } catch (error) {
+      // If circuit breaker is open, try to reset it and retry once
+      if (error instanceof Error && error.message.includes('circuit breaker')) {
+        console.log('Circuit breaker triggered, attempting reset and retry');
+        this.rateLimiter.resetCircuitBreaker();
+        return await this.rateLimiter.executeRequest(
+          key,
+          () => this.stockService.getQuote(symbol),
+          true // force refresh on retry
+        );
+      }
+      throw error;
+    }
   }
 
   async getMultipleQuotes(symbols: string[], forceRefresh = false): Promise<StockQuote[]> {
@@ -99,6 +113,21 @@ export class StockServiceManager {
     );
   }
 
+  async getUnusualOptionsActivity(symbol: string) {
+    const key = `unusual-options-${symbol}`;
+    
+    try {
+      return await this.rateLimiter.executeRequest(
+        key,
+        () => this.stockService.getUnusualOptionsActivity(symbol)
+      );
+    } catch (error) {
+      // More graceful handling of unusual options failures
+      console.warn('Unusual options activity request failed:', error);
+      return [];
+    }
+  }
+
   // Utility methods
   getCurrentProvider(): string {
     return this.stockService.getCurrentProvider();
@@ -128,12 +157,13 @@ export class StockServiceManager {
     return this.rateLimiter.getCacheStats();
   }
 
-  // New methods for circuit breaker management
+  // Circuit breaker management
   getCircuitBreakerStatus() {
     return this.rateLimiter.getCircuitBreakerStatus();
   }
 
   resetCircuitBreaker() {
+    console.log('Resetting circuit breaker for stock service');
     this.rateLimiter.resetCircuitBreaker();
   }
 }

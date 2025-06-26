@@ -33,49 +33,64 @@ export const useUnusualOptionsActivity = (symbol: string) => {
     try {
       const stockService = getStockService();
       
+      // Reset circuit breaker if needed
+      if (stockService.getCircuitBreakerStatus && stockService.resetCircuitBreaker) {
+        const status = stockService.getCircuitBreakerStatus();
+        if (status.isOpen) {
+          console.log('Resetting circuit breaker for options activity');
+          stockService.resetCircuitBreaker();
+        }
+      }
+      
       if (stockService.hasAdvancedFeatures()) {
-        console.log(`Fetching real unusual options activity for ${symbol} using Polygon`);
+        console.log(`Fetching unusual options activity for ${symbol} using Polygon`);
         
-        // Try to get real unusual activity data from Polygon
-        const unusualData = await (stockService as any).getUnusualOptionsActivity?.(symbol);
-        
-        if (unusualData && unusualData.length > 0) {
-          console.log(`Found ${unusualData.length} unusual options contracts for ${symbol}`);
+        try {
+          // Try to get real unusual activity data from Polygon
+          const unusualData = await (stockService as any).getUnusualOptionsActivity?.(symbol);
           
-          // Enhance with AI analysis for the most significant activities
-          const enhancedData = await Promise.all(
-            unusualData.slice(0, 3).map(async (item: UnusualOptionsData) => {
-              try {
-                const aiAnalysis = await getAIAnalysis(
-                  symbol,
-                  'options',
-                  {
-                    contract: item,
-                    analysis: `Analyze this unusual options activity: ${item.context} for ${symbol}. 
-                    Volume ratio: ${item.volumeRatio}x normal. 
-                    Current sentiment: ${item.sentiment}.
-                    Strike: $${item.strike}, Expiration: ${item.expiration}.
-                    What does this suggest about market expectations?`
-                  }
-                );
-                
-                return {
-                  ...item,
-                  aiAnalysis: aiAnalysis?.analysis || undefined
-                };
-              } catch (error) {
-                console.log('AI analysis failed for options:', error);
-                return item;
-              }
-            })
-          );
-          
-          // Add remaining items without AI analysis
-          const remainingData = unusualData.slice(3);
-          setData([...enhancedData, ...remainingData]);
-        } else {
-          console.warn(`No unusual options activity found for ${symbol} - this may indicate low activity or API limitations`);
-          setError(`No unusual options activity detected for ${symbol}. This could mean low trading volume or limited data availability.`);
+          if (unusualData && unusualData.length > 0) {
+            console.log(`Found ${unusualData.length} unusual options contracts for ${symbol}`);
+            
+            // Enhance with AI analysis for the most significant activities
+            const enhancedData = await Promise.all(
+              unusualData.slice(0, 3).map(async (item: UnusualOptionsData) => {
+                try {
+                  const aiAnalysis = await getAIAnalysis(
+                    symbol,
+                    'options',
+                    {
+                      contract: item,
+                      analysis: `Analyze this unusual options activity: ${item.context} for ${symbol}. 
+                      Volume ratio: ${item.volumeRatio}x normal. 
+                      Current sentiment: ${item.sentiment}.
+                      Strike: $${item.strike}, Expiration: ${item.expiration}.
+                      What does this suggest about market expectations?`
+                    }
+                  );
+                  
+                  return {
+                    ...item,
+                    aiAnalysis: aiAnalysis?.analysis || undefined
+                  };
+                } catch (error) {
+                  console.log('AI analysis failed for options:', error);
+                  return item;
+                }
+              })
+            );
+            
+            // Add remaining items without AI analysis
+            const remainingData = unusualData.slice(3);
+            setData([...enhancedData, ...remainingData]);
+          } else {
+            console.log(`No unusual options activity found for ${symbol}`);
+            setError(`No unusual options activity detected for ${symbol}. This may indicate low trading volume or normal market conditions.`);
+            setData([]);
+          }
+        } catch (apiError) {
+          console.error('API error fetching unusual options:', apiError);
+          setError(`Unable to fetch unusual options data: ${apiError instanceof Error ? apiError.message : 'API temporarily unavailable'}. Please try again in a moment.`);
           setData([]);
         }
         
@@ -87,7 +102,7 @@ export const useUnusualOptionsActivity = (symbol: string) => {
       
     } catch (err) {
       console.error('Error fetching unusual options activity:', err);
-      setError(`Failed to fetch unusual options activity: ${err instanceof Error ? err.message : 'Unknown error'}`);
+      setError(`Failed to fetch unusual options activity. Please try refreshing the page or check your connection.`);
       setData([]);
     } finally {
       setIsLoading(false);

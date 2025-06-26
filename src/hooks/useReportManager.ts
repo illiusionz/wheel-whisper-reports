@@ -21,8 +21,30 @@ export const useReportManager = () => {
       if (targetSymbol) {
         const stockService = getStockService();
         
-        // Get real stock data
-        const stockData = await stockService.getQuote(targetSymbol);
+        // Reset circuit breaker if it's open
+        if (stockService.getCircuitBreakerStatus && stockService.resetCircuitBreaker) {
+          const status = stockService.getCircuitBreakerStatus();
+          if (status.isOpen) {
+            console.log('Resetting circuit breaker for report refresh');
+            stockService.resetCircuitBreaker();
+          }
+        }
+        
+        // Get real stock data with retry logic
+        let stockData;
+        try {
+          stockData = await stockService.getQuote(targetSymbol);
+        } catch (error) {
+          console.error('Failed to get stock quote:', error);
+          // If the first attempt fails, try once more
+          try {
+            console.log('Retrying stock quote after initial failure');
+            stockData = await stockService.getQuote(targetSymbol, true); // force refresh
+          } catch (retryError) {
+            console.error('Stock quote retry also failed:', retryError);
+            throw retryError;
+          }
+        }
         
         // Try to get wheel strategy data if available
         let wheelData = null;
@@ -61,6 +83,7 @@ export const useReportManager = () => {
       }
     } catch (error) {
       console.error('Error refreshing report:', error);
+      // Don't throw the error, just log it to prevent UI crashes
     } finally {
       setIsRefreshing(false);
     }
@@ -70,6 +93,16 @@ export const useReportManager = () => {
     setIsRefreshing(true);
     try {
       const stockService = getStockService();
+      
+      // Reset circuit breaker if needed
+      if (stockService.getCircuitBreakerStatus && stockService.resetCircuitBreaker) {
+        const status = stockService.getCircuitBreakerStatus();
+        if (status.isOpen) {
+          console.log('Resetting circuit breaker for refresh all');
+          stockService.resetCircuitBreaker();
+        }
+      }
+      
       const newReports: {[key: string]: Report} = {};
       
       for (const stock of watchlist) {
@@ -93,6 +126,7 @@ export const useReportManager = () => {
           };
         } catch (error) {
           console.error(`Error fetching data for ${stock.symbol}:`, error);
+          // Continue with other stocks even if one fails
         }
       }
       
