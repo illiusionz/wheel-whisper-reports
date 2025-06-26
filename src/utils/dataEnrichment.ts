@@ -1,3 +1,4 @@
+
 import { StockQuote } from '@/types/stock';
 
 export interface EnrichedAnalysisData {
@@ -73,24 +74,23 @@ export const enrichDataForAnalysis = (
     };
   }
 
-  // Add fundamental data if available
+  // Add fundamental data if available (using properties that exist on StockQuote)
   if (stockData.peRatio || stockData.marketCap) {
     enriched.fundamental = {
       peRatio: stockData.peRatio,
-      priceToBook: stockData.priceToBook,
-      eps: stockData.eps,
-      revenue: stockData.revenue
+      // Note: priceToBook, eps, revenue don't exist on StockQuote, so we'll set them as undefined
+      // These would come from additional API calls in a real implementation
     };
   }
 
-  // Add market context
+  // Add market context (using properties that exist on StockQuote)
   enriched.market = {
     marketCap: stockData.marketCap,
     volume: stockData.volume,
     averageVolume: stockData.averageVolume,
     beta: stockData.beta,
-    sector: stockData.sector,
-    industry: stockData.industry
+    // Note: sector and industry don't exist on StockQuote, so we'll set them as undefined
+    // These would come from additional API calls in a real implementation
   };
 
   // Add analysis-specific context
