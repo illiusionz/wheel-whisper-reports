@@ -466,6 +466,102 @@ export class PolygonProvider implements StockProvider {
     return Math.sqrt(variance * 252) * 100;
   }
 
+  async getUnusualOptionsActivity(symbol: string): Promise<any> {
+    const cacheKey = `unusual-options-${symbol}`;
+    
+    return await this.makeRateLimitedCall(
+      `${this.baseUrl}/v3/reference/options/contracts?underlying_ticker=${symbol}&order=desc&limit=50&apikey=${this.apiKey}`,
+      cacheKey,
+      async (data) => {
+        const contracts = data.results || [];
+        
+        // Get recent trades for volume analysis
+        const analysisPromises = contracts.slice(0, 10).map(async (contract: any) => {
+          try {
+            // Get daily bar data for volume comparison
+            const yesterdayDate = new Date();
+            yesterdayDate.setDate(yesterdayDate.getDate() - 1);
+            const dateStr = yesterdayDate.toISOString().split('T')[0];
+            
+            const tradesResponse = await fetch(
+              `${this.baseUrl}/v2/aggs/ticker/${contract.ticker}/range/1/day/${dateStr}/${dateStr}?apikey=${this.apiKey}`
+            );
+            
+            if (!tradesResponse.ok) return null;
+            
+            const tradesData = await tradesResponse.json();
+            const recentBar = tradesData.results?.[0];
+            
+            if (!recentBar) return null;
+            
+            // Calculate volume metrics
+            const currentVolume = recentBar.v || 0;
+            const avgVolume = currentVolume * 0.7; // Simplified average calculation
+            const volumeRatio = avgVolume > 0 ? currentVolume / avgVolume : 0;
+            
+            // Determine if this is unusual activity
+            const isUnusual = volumeRatio > 2.0 || currentVolume > 1000;
+            
+            if (!isUnusual) return null;
+            
+            return {
+              ticker: contract.ticker,
+              strike: contract.strike_price,
+              expiration: contract.expiration_date,
+              contractType: contract.contract_type,
+              volume: currentVolume,
+              volumeRatio,
+              price: recentBar.c || 0,
+              isUnusual: true,
+              sentiment: this.analyzeSentiment(contract, recentBar.c, symbol),
+              context: this.getActivityContext(contract, volumeRatio, currentVolume)
+            };
+          } catch (error) {
+            console.log(`Error analyzing contract ${contract.ticker}:`, error);
+            return null;
+          }
+        });
+        
+        const results = await Promise.all(analysisPromises);
+        return results.filter(result => result !== null);
+      }
+    );
+  }
+
+  private analyzeSentiment(contract: any, currentPrice: number, underlyingSymbol: string): string {
+    const strike = contract.strike_price;
+    const isCall = contract.contract_type === 'call';
+    const isPut = contract.contract_type === 'put';
+    
+    // Simple sentiment analysis based on moneyness and contract type
+    if (isCall) {
+      if (currentPrice > strike) return 'Bullish';
+      if (currentPrice < strike * 0.95) return 'Very Bullish';
+      return 'Moderately Bullish';
+    } else if (isPut) {
+      if (currentPrice < strike) return 'Bearish';
+      if (currentPrice > strike * 1.05) return 'Protective/Hedging';
+      return 'Moderately Bearish';
+    }
+    
+    return 'Neutral';
+  }
+
+  private getActivityContext(contract: any, volumeRatio: number, volume: number): string {
+    const isCall = contract.contract_type === 'call';
+    const isPut = contract.contract_type === 'put';
+    
+    if (volumeRatio > 5) {
+      return isCall ? 'Massive call buying' : 'Heavy put activity';
+    } else if (volumeRatio > 3) {
+      return isCall ? 'Large call sweep' : 'Significant put flow';
+    } else if (volume > 5000) {
+      return isCall ? 'High call volume' : 'Elevated put interest';
+    } else {
+      return isCall ? 'Notable call activity' : 'Unusual put activity';
+    }
+  }
+
   // Add method to get rate limit status
   getRateLimitStatus() {
     const now = Date.now();
