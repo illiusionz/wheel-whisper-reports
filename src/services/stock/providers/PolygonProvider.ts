@@ -95,6 +95,12 @@ interface PolygonMarketStatus {
   };
 }
 
+interface CircuitBreakerStatus {
+  state: 'OPEN' | 'HALF_OPEN' | 'CLOSED';
+  failureCount: number;
+  nextAttemptTime?: number;
+}
+
 export class PolygonProvider implements StockProvider {
   name = 'Polygon.io';
   private apiKey: string;
@@ -104,6 +110,10 @@ export class PolygonProvider implements StockProvider {
   private rateLimitTracker: number[] = [];
   private readonly MAX_CALLS_PER_MINUTE = 5;
   private readonly CACHE_TTL = 15000; // 15 seconds
+  private circuitBreaker: CircuitBreakerStatus = {
+    state: 'CLOSED',
+    failureCount: 0
+  };
 
   constructor(apiKey: string) {
     this.apiKey = apiKey;
@@ -180,6 +190,18 @@ export class PolygonProvider implements StockProvider {
 
   isConfigured(): boolean {
     return !!this.apiKey;
+  }
+
+  // Circuit breaker methods
+  getCircuitBreakerStatus(): CircuitBreakerStatus {
+    return this.circuitBreaker;
+  }
+
+  resetCircuitBreaker(): void {
+    this.circuitBreaker = {
+      state: 'CLOSED',
+      failureCount: 0
+    };
   }
 
   async getQuote(symbol: string): Promise<StockQuote> {

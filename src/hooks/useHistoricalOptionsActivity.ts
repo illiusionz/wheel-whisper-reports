@@ -54,13 +54,13 @@ export const useHistoricalOptionsActivity = (symbol: string) => {
       const recordsToInsert = activities.map(activity => ({
         user_id: user.id,
         symbol: activity.ticker || symbol,
-        strike: activity.strike,
+        strike: parseFloat(activity.strike.toString()),
         expiration: activity.expiration,
         contract_type: activity.contractType,
-        volume: activity.volume,
-        volume_ratio: activity.volumeRatio,
-        price: activity.price,
-        open_interest: activity.openInterest,
+        volume: parseInt(activity.volume.toString()),
+        volume_ratio: parseFloat(activity.volumeRatio.toString()),
+        price: parseFloat(activity.price.toString()),
+        open_interest: activity.openInterest ? parseInt(activity.openInterest.toString()) : null,
         sentiment: activity.sentiment,
         context: activity.context,
         ai_analysis: activity.aiAnalysis,
@@ -265,7 +265,7 @@ export const useHistoricalOptionsActivity = (symbol: string) => {
         bearishVolume: item.bearish_volume,
         dominantSentiment: item.dominant_sentiment as 'bullish' | 'bearish' | 'neutral',
         sentimentStrength: item.sentiment_strength,
-        keyStrikes: item.key_strikes || [],
+        keyStrikes: Array.isArray(item.key_strikes) ? item.key_strikes : [],
         weekSummary: item.week_summary
       }));
 
