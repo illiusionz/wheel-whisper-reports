@@ -84,8 +84,8 @@ export const useUnusualOptionsActivity = (symbol: string) => {
             const remainingData = unusualData.slice(3);
             setData([...enhancedData, ...remainingData]);
           } else {
-            console.log(`No unusual options activity found for ${symbol}`);
-            setError(`No unusual options activity detected for ${symbol}. This may indicate low trading volume or normal market conditions.`);
+            console.log(`No unusual options activity found for ${symbol} - this is normal`);
+            // This is normal behavior, not an error - just set empty data
             setData([]);
           }
         } catch (apiError) {
