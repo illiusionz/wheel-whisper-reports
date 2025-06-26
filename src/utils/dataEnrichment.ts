@@ -1,8 +1,7 @@
-
-import { StockData } from '@/types/stock';
+import { StockQuote } from '@/types/stock';
 
 export interface EnrichedAnalysisData {
-  basic: StockData;
+  basic: StockQuote;
   technical?: {
     rsi?: number;
     macd?: any;
@@ -52,7 +51,7 @@ export interface EnrichedAnalysisData {
 }
 
 export const enrichDataForAnalysis = (
-  stockData: StockData,
+  stockData: StockQuote,
   analysisType: string
 ): EnrichedAnalysisData => {
   console.log(`📊 Enriching data for ${analysisType} analysis:`, stockData);
